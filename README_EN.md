@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📖 BookKeep
+# 📖 Sanjin BookKeep (三金记账)
 
 <p align="center">
   <strong>A lightweight, elegant, and offline-first mobile bookkeeping app with bidirectional cloud synchronization, built with React Native and TypeScript.</strong>
@@ -37,6 +37,10 @@ The app natively supports seamless bidirectional incremental synchronization wit
 ## ✨ Key Features
 
 - 🎨 **Modern Sky Blue Design System**: Vibrant yet minimalist cards, subtle gradients, and intuitive micro-interactions.
+- 📱 **Refined Modern UX & 1/4 Height Golden Ratio Header**:
+  - **1/4 Screen Height HeaderCard**: Compact three-tier layout (AppBar with sub-tabs, Date/Income/Expense in a single row, and All/Expense/Income filter row);
+  - **In-Bills Dual Tab Switching**: Seamlessly toggle between "Bills Flow" and "Analytics Chart" directly within the Bills screen;
+  - **Classic Tri-Section Bottom Navigation**: Clean "Bills" (Left), "Mine" (Right), with a prominent floating sky-blue plus "＋" center button.
 - ⚡ **Lightning Fast Expense Recording**: Seamlessly switch between expense and income, with comprehensive lifestyle categories (Dining, Transit, Shopping, Groceries, Salary, etc.) and instant balance calculation.
 - 📊 **Insightful Statistics & Visual Analytics**:
   - Automatically calculates monthly net balance, total income, and total expenditure;
@@ -46,10 +50,11 @@ The app natively supports seamless bidirectional incremental synchronization wit
   - High-performance local storage engine ensuring immediate read/write responsiveness offline;
   - Backed by a Spring Boot cloud API, performing sub-second incremental pulls based on `server_updated_at` timestamps;
   - Built-in **LWW (Last-Write-Wins)** conflict resolution and **Tombstone Soft-Delete** mechanics to prevent resurrected records across devices.
-- 🔐 **Comprehensive Authentication Suite**:
+- 🔐 **Comprehensive Authentication Suite & Immersive User Center**:
+  - **Modern Embedded Auth UI**: Renders an elegant mainstream auth screen directly in the "Mine" tab when unauthenticated, featuring email registration by default;
+  - **Email Registration**: Sign up with 4-digit verification code and password;
   - **Account/Email Login**: Sign in with username or email and password;
   - **Passwordless Phone Login**: SMS code login with automatic account registration for new phone numbers;
-  - **Email Registration**: Complete new account registration with 4-digit verification code validation;
   - **Session Security**: Revoke active tokens and log out safely at any time.
 - 💾 **Data Portability & One-Click Backup**:
   - Export all transaction records to standardized JSON backup files;
@@ -102,16 +107,19 @@ sequenceDiagram
 
 ```text
 BookKeep/
-├── android/                 # Android native project & Gradle scripts
-├── ios/                     # iOS native project & Podfile
+├── android/                 # Android native project (App Name: 三金记账, multi-density icons)
+├── ios/                     # iOS native project & Podfile (Display Name: 三金记账, AppIcon)
+├── docs/image/logo.png      # Original App Logo asset
 ├── src/
 │   ├── app/
 │   │   └── App.tsx          # Main entry screen & state coordination
+│   ├── assets/              # Static icon assets (logo.png)
 │   ├── components/          # Core reusable UI components
 │   │   ├── AddTransactionModal.tsx  # Add / Edit transaction modal
 │   │   ├── AuthModal.tsx            # Login, Phone SMS & Email registration modal
 │   │   ├── CloudSyncModal.tsx       # Cloud sync dashboard & user center
-│   │   ├── HeaderCard.tsx           # Monthly summary & sync status badge card
+│   │   ├── HeaderCard.tsx           # 1/4 Screen Height Header (AppBar / Date-Income-Expense / Filter)
+│   │   ├── MineView.tsx             # Bottom "Mine" user center & backup view
 │   │   ├── StatisticsView.tsx       # Analytics & category breakdown view
 │   │   └── TransactionItem.tsx      # Individual transaction row component
 │   ├── constants/           # Transaction category definitions

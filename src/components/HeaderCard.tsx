@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { MonthlySummary, SyncStatus } from '../type/bookkeep';
@@ -18,6 +19,8 @@ interface HeaderCardProps {
   filterType: 'all' | 'expense' | 'income';
   isLoggedIn?: boolean;
   userDisplayName?: string;
+  activeSubTab?: 'bills' | 'stats';
+  onSubTabChange?: (tab: 'bills' | 'stats') => void;
   onFilterChange: (type: 'all' | 'expense' | 'income') => void;
   onSyncPress: () => void;
   onMonthPrev: () => void;
@@ -32,6 +35,8 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
   filterType,
   isLoggedIn = false,
   userDisplayName,
+  activeSubTab = 'bills',
+  onSubTabChange,
   onFilterChange,
   onSyncPress,
   onMonthPrev,
@@ -44,20 +49,20 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
   // 同步指示器状态文案与样式
   const getSyncBadge = () => {
     if (!isLoggedIn) {
-      return { text: '点击登录同步', icon: '👤', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
+      return { text: '登录', icon: '👤', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
     }
     switch (syncStatus) {
       case 'syncing':
-        return { text: '正在同步...', icon: '🔄', color: '#FFFFFF', bg: 'rgba(255, 255, 255, 0.25)' };
+        return { text: '同步中', icon: '🔄', color: '#FFFFFF', bg: 'rgba(255, 255, 255, 0.25)' };
       case 'success':
-        return { text: userDisplayName ? `${userDisplayName}已同步` : '云端已同步', icon: '☁️ ✓', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
+        return { text: '已同步', icon: '☁️', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
       case 'error':
-        return { text: '同步失败', icon: '⚠️', color: '#FEE2E2', bg: 'rgba(239, 68, 68, 0.3)' };
+        return { text: '失败', icon: '⚠️', color: '#FEE2E2', bg: 'rgba(239, 68, 68, 0.3)' };
       default:
         if (unsyncedCount > 0) {
-          return { text: `${unsyncedCount}笔待同步`, icon: '☁️ ⬆', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
+          return { text: `${unsyncedCount}待传`, icon: '☁️', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
         }
-        return { text: userDisplayName ? `${userDisplayName}在线` : '云端已同步', icon: '☁️', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
+        return { text: userDisplayName ? `${userDisplayName}` : '已同步', icon: '☁️', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
     }
   };
 
@@ -65,8 +70,57 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* 顶部月份切换与云同步按钮 */}
-      <View style={styles.topRow}>
+      {/* 1. 第一行: AppBar (Logo+标题 / 明细与图表切换 / 云同步状态) */}
+      <View style={styles.appBarRow}>
+        <View style={styles.brandBox}>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.brandLogo}
+            resizeMode="cover"
+          />
+          <Text style={styles.brandTitle}>三金记账</Text>
+        </View>
+
+        {/* 明细与图表 TabApp 切换 */}
+        <View style={styles.subTabBar}>
+          <TouchableOpacity
+            style={[styles.subTabBtn, activeSubTab === 'bills' && styles.subTabBtnActive]}
+            onPress={() => onSubTabChange?.('bills')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.subTabBtnText, activeSubTab === 'bills' && styles.subTabBtnTextActive]}>
+              明细
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTabBtn, activeSubTab === 'stats' && styles.subTabBtnActive]}
+            onPress={() => onSubTabChange?.('stats')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.subTabBtnText, activeSubTab === 'stats' && styles.subTabBtnTextActive]}>
+              图表
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 云同步徽标 */}
+        <TouchableOpacity
+          style={[styles.syncBadge, { backgroundColor: badge.bg }]}
+          onPress={onSyncPress}
+          activeOpacity={0.8}
+        >
+          {syncStatus === 'syncing' ? (
+            <ActivityIndicator size="small" color="#FFFFFF" style={styles.syncSpinner} />
+          ) : (
+            <Text style={styles.syncBadgeIcon}>{badge.icon}</Text>
+          )}
+          <Text style={[styles.syncBadgeText, { color: badge.color }]}>{badge.text}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 2. 第二行: 日期 收入 支出 (这三个为一行) */}
+      <View style={styles.dataSummaryRow}>
+        {/* 日期选择器 */}
         <View style={styles.monthSelector}>
           <TouchableOpacity onPress={onMonthPrev} style={styles.arrowButton} activeOpacity={0.7}>
             <Text style={styles.arrowText}>‹</Text>
@@ -77,67 +131,49 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={[styles.syncBadge, { backgroundColor: badge.bg }]} onPress={onSyncPress} activeOpacity={0.8}>
-          {syncStatus === 'syncing' ? (
-            <ActivityIndicator size="small" color="#FFFFFF" style={styles.syncSpinner} />
-          ) : (
-            <Text style={styles.syncBadgeIcon}>{badge.icon}</Text>
-          )}
-          <Text style={[styles.syncBadgeText, { color: badge.color }]}>{badge.text}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 总结余大数值区 */}
-      <View style={styles.balanceSection}>
-        <Text style={styles.balanceLabel}>本月结余 (元)</Text>
-        <Text style={styles.balanceValue}>
-          {summary.balance >= 0 ? '+' : '-'}¥{formatMoney(summary.balance)}
-        </Text>
-      </View>
-
-      {/* 支出 & 收入 双列明细概览卡片 */}
-      <View style={styles.statsRow}>
-        <View style={styles.statBox}>
-          <View style={styles.statTagRow}>
-            <View style={[styles.statDot, styles.statDotExpense]} />
-            <Text style={styles.statLabel}>本月支出</Text>
-          </View>
-          <Text style={styles.statExpenseValue}>¥{formatMoney(summary.totalExpense)}</Text>
+        {/* 收入 */}
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>收入</Text>
+          <Text style={styles.summaryIncomeValue}>¥{formatMoney(summary.totalIncome)}</Text>
         </View>
 
-        <View style={styles.statDivider} />
-
-        <View style={styles.statBox}>
-          <View style={styles.statTagRow}>
-            <View style={[styles.statDot, styles.statDotIncome]} />
-            <Text style={styles.statLabel}>本月收入</Text>
-          </View>
-          <Text style={styles.statIncomeValue}>¥{formatMoney(summary.totalIncome)}</Text>
+        {/* 支出 */}
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>支出</Text>
+          <Text style={styles.summaryExpenseValue}>¥{formatMoney(summary.totalExpense)}</Text>
         </View>
       </View>
 
-      {/* 快捷筛选过滤器 Tab (全部 / 支出 / 收入) */}
-      <View style={styles.filterBar}>
+      {/* 3. 第三行: 全部明细 支出 收入 (这三个为一行) */}
+      <View style={styles.filterRow}>
         <TouchableOpacity
-          style={[styles.filterTab, filterType === 'all' && styles.filterTabActive]}
+          style={[styles.filterBtn, filterType === 'all' && styles.filterBtnActive]}
           onPress={() => onFilterChange('all')}
           activeOpacity={0.7}
         >
-          <Text style={[styles.filterTabText, filterType === 'all' && styles.filterTabTextActive]}>全部明细</Text>
+          <Text style={[styles.filterBtnText, filterType === 'all' && styles.filterBtnTextActive]}>
+            全部明细
+          </Text>
         </TouchableOpacity>
+
         <TouchableOpacity
-          style={[styles.filterTab, filterType === 'expense' && styles.filterTabActive]}
+          style={[styles.filterBtn, filterType === 'expense' && styles.filterBtnActive]}
           onPress={() => onFilterChange('expense')}
           activeOpacity={0.7}
         >
-          <Text style={[styles.filterTabText, filterType === 'expense' && styles.filterTabTextActive]}>仅看支出</Text>
+          <Text style={[styles.filterBtnText, filterType === 'expense' && styles.filterBtnTextActive]}>
+            支出
+          </Text>
         </TouchableOpacity>
+
         <TouchableOpacity
-          style={[styles.filterTab, filterType === 'income' && styles.filterTabActive]}
+          style={[styles.filterBtn, filterType === 'income' && styles.filterBtnActive]}
           onPress={() => onFilterChange('income')}
           activeOpacity={0.7}
         >
-          <Text style={[styles.filterTabText, filterType === 'income' && styles.filterTabTextActive]}>仅看收入</Text>
+          <Text style={[styles.filterBtnText, filterType === 'income' && styles.filterBtnTextActive]}>
+            收入
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -147,157 +183,163 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
     shadowColor: Colors.primaryDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
   },
-  topRow: {
+  // 1. 第一行 AppBar
+  appBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 8,
+    height: 34,
   },
-  monthSelector: {
+  brandBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-    borderRadius: 20,
-    paddingHorizontal: 8,
+  },
+  brandLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    marginRight: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  brandTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  subTabBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.12)',
+    borderRadius: 14,
+    padding: 2,
+  },
+  subTabBtn: {
+    paddingHorizontal: 12,
     paddingVertical: 4,
+    borderRadius: 12,
   },
-  arrowButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  subTabBtnActive: {
+    backgroundColor: '#FFFFFF',
   },
-  arrowText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    lineHeight: 22,
-  },
-  monthText: {
-    color: '#FFFFFF',
-    fontSize: 15,
+  subTabBtnText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.85)',
     fontWeight: '600',
-    paddingHorizontal: 4,
+  },
+  subTabBtnTextActive: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
   syncBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   syncSpinner: {
-    marginRight: 6,
+    marginRight: 4,
   },
   syncBadgeIcon: {
-    fontSize: 12,
-    marginRight: 5,
+    fontSize: 11,
+    marginRight: 3,
   },
   syncBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
-  balanceSection: {
-    marginBottom: 18,
+  // 2. 第二行: 日期 收入 支出 (这三个为一行)
+  dataSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
   },
-  balanceLabel: {
-    color: 'rgba(255, 255, 255, 0.82)',
+  monthSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  arrowButton: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  arrowText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: 'bold',
+    lineHeight: 18,
+  },
+  monthText: {
+    color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '500',
-    marginBottom: 4,
+    fontWeight: '700',
+    paddingHorizontal: 2,
   },
-  balanceValue: {
-    color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  statsRow: {
-    flexDirection: 'row',
+  summaryItem: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 16,
   },
-  statBox: {
-    flex: 1,
-  },
-  statTagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  statDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  statLabel: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 12,
+  summaryLabel: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
     fontWeight: '500',
+    marginBottom: 1,
   },
-  statExpenseValue: {
-    color: '#FFFFFF',
-    fontSize: 18,
+  summaryIncomeValue: {
+    color: '#E0F2FE',
+    fontSize: 13,
     fontWeight: '700',
   },
-  statIncomeValue: {
+  summaryExpenseValue: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '700',
   },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    marginHorizontal: 14,
-  },
-  filterBar: {
+  // 3. 第三行: 全部明细 支出 收入 (这三个为一行)
+  filterRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 14,
-    padding: 3,
-  },
-  filterTab: {
-    flex: 1,
-    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 11,
+    justifyContent: 'space-between',
   },
-  filterTabActive: {
+  filterBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    marginHorizontal: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  filterBtnActive: {
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
     elevation: 2,
   },
-  filterTabText: {
-    fontSize: 13,
+  filterBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '500',
   },
-  filterTabTextActive: {
+  filterBtnTextActive: {
     color: Colors.primary,
     fontWeight: '700',
-  },
-  statDotExpense: {
-    backgroundColor: '#FF8A80',
-  },
-  statDotIncome: {
-    backgroundColor: '#69F0AE',
   },
 });

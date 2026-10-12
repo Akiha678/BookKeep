@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { SyncStatus, UserInfo } from '../type/bookkeep';
@@ -148,8 +149,12 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           {/* 顶部标题栏 */}
           <View style={styles.headerRow}>
             <View style={styles.titleWithIcon}>
-              <Text style={styles.titleIcon}>☁️</Text>
-              <Text style={styles.headerTitle}>云端同步中心</Text>
+              <Image
+                source={require('../assets/logo.png')}
+                style={styles.headerLogo}
+                resizeMode="cover"
+              />
+              <Text style={styles.headerTitle}>三金记账 · 云端同步中心</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
@@ -436,6 +441,12 @@ const styles = StyleSheet.create({
   titleWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headerLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    marginRight: 8,
   },
   titleIcon: {
     fontSize: 22,

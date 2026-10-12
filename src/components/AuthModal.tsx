@@ -11,6 +11,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { authService } from '../services/authService';
@@ -197,8 +198,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* 顶部标题与关闭 */}
           <View style={styles.headerRow}>
             <View style={styles.titleWithIcon}>
-              <Text style={styles.titleIcon}>🔐</Text>
-              <Text style={styles.headerTitle}>账号与云同步中心</Text>
+              <Image
+                source={require('../assets/logo.png')}
+                style={styles.headerLogo}
+                resizeMode="cover"
+              />
+              <Text style={styles.headerTitle}>三金记账 · 账号中心</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
@@ -241,7 +246,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <View style={styles.formContainer}>
                 <View style={styles.tipBox}>
                   <Text style={styles.tipText}>
-                    💡 支持使用 XinChat 用户名或邮箱登录。登录后，本地记账将自动增量同步到服务端云数据库。
+                    💡 支持使用三金记账云端账号或邮箱登录。登录后，本地记账将自动增量同步到服务端云数据库。
                   </Text>
                 </View>
 
@@ -449,6 +454,12 @@ const styles = StyleSheet.create({
   titleWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headerLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    marginRight: 8,
   },
   titleIcon: {
     fontSize: 22,

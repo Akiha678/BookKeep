@@ -19,6 +19,7 @@ interface StatisticsViewProps {
   transactions: Transaction[];
   onMonthPrev: () => void;
   onMonthNext: () => void;
+  showHeader?: boolean;
 }
 
 export const StatisticsView: React.FC<StatisticsViewProps> = ({
@@ -26,6 +27,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   transactions,
   onMonthPrev,
   onMonthNext,
+  showHeader = true,
 }) => {
   const [activeType, setActiveType] = useState<TransactionType>('expense');
 
@@ -47,38 +49,40 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* 顶部月份切换卡片 */}
-      <View style={styles.monthHeaderCard}>
-        <View style={styles.monthSelector}>
-          <TouchableOpacity onPress={onMonthPrev} style={styles.arrowBtn} activeOpacity={0.7}>
-            <Text style={styles.arrowText}>‹</Text>
-          </TouchableOpacity>
-          <Text style={styles.monthTitle}>{displayMonth} 收支统计</Text>
-          <TouchableOpacity onPress={onMonthNext} style={styles.arrowBtn} activeOpacity={0.7}>
-            <Text style={styles.arrowText}>›</Text>
-          </TouchableOpacity>
-        </View>
+      {/* 顶部月份切换卡片 (仅独立模式下显示) */}
+      {showHeader && (
+        <View style={styles.monthHeaderCard}>
+          <View style={styles.monthSelector}>
+            <TouchableOpacity onPress={onMonthPrev} style={styles.arrowBtn} activeOpacity={0.7}>
+              <Text style={styles.arrowText}>‹</Text>
+            </TouchableOpacity>
+            <Text style={styles.monthTitle}>{displayMonth} 收支统计</Text>
+            <TouchableOpacity onPress={onMonthNext} style={styles.arrowBtn} activeOpacity={0.7}>
+              <Text style={styles.arrowText}>›</Text>
+            </TouchableOpacity>
+          </View>
 
-        {/* 收支总览对比条 */}
-        <View style={styles.overviewRow}>
-          <View style={styles.overviewItem}>
-            <Text style={styles.overviewLabel}>总支出</Text>
-            <Text style={styles.overviewExpense}>¥{formatMoney(summary.totalExpense)}</Text>
-          </View>
-          <View style={styles.overviewDivider} />
-          <View style={styles.overviewItem}>
-            <Text style={styles.overviewLabel}>总收入</Text>
-            <Text style={styles.overviewIncome}>¥{formatMoney(summary.totalIncome)}</Text>
-          </View>
-          <View style={styles.overviewDivider} />
-          <View style={styles.overviewItem}>
-            <Text style={styles.overviewLabel}>结余</Text>
-            <Text style={[styles.overviewBalance, summary.balance < 0 && { color: Colors.expense }]}>
-              ¥{formatMoney(summary.balance)}
-            </Text>
+          {/* 收支总览对比条 */}
+          <View style={styles.overviewRow}>
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>总支出</Text>
+              <Text style={styles.overviewExpense}>¥{formatMoney(summary.totalExpense)}</Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>总收入</Text>
+              <Text style={styles.overviewIncome}>¥{formatMoney(summary.totalIncome)}</Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>结余</Text>
+              <Text style={[styles.overviewBalance, summary.balance < 0 && { color: Colors.expense }]}>
+                ¥{formatMoney(summary.balance)}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
+      )}
 
       {/* 支出 / 收入 排行切换 Tab */}
       <View style={styles.tabContainer}>

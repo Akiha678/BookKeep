@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Transaction, SyncStatus, TransactionType, CategoryName, UserInfo } from '../type/bookkeep';
+import { Transaction, SyncStatus, CategoryName, UserInfo } from '../type/bookkeep';
 import { Colors } from '../theme/colors';
 import { storage } from '../services/storage';
 import { cloudSync } from '../services/cloudSync';
@@ -11,13 +11,17 @@ import { AddTransactionModal } from '../components/AddTransactionModal';
 import { StatisticsView } from '../components/StatisticsView';
 import { CloudSyncModal } from '../components/CloudSyncModal';
 import { AuthModal } from '../components/AuthModal';
+import { MineView } from '../components/MineView';
 import { calculateMonthlySummary, getCurrentMonthStr, groupTransactionsByDay, formatMoney } from '../utils/format';
 
 function BookKeepApp() {
     const insets = useSafeAreaInsets();
 
-    // 基础状态
-    const [currentTab, setCurrentTab] = useState<'bills' | 'stats'>('bills');
+    // 底部核心导航: 'bills'(明细) | 'mine'(我的)
+    const [currentTab, setCurrentTab] = useState<'bills' | 'mine'>('bills');
+    // 明细内部切换: 'bills'(明细列表) | 'stats'(图表统计)
+    const [subTab, setSubTab] = useState<'bills' | 'stats'>('bills');
+
     const [currentMonth, setCurrentMonth] = useState<string>(getCurrentMonthStr());
     const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
     const [transactions, setTransactions] = useState<Transaction[]>(storage.getTransactions());
@@ -101,21 +105,19 @@ function BookKeepApp() {
         return transactions.filter(t => !t.synced).length;
     }, [transactions]);
 
-    // 触发云端同步
+    // 手动触发同步
     const handleTriggerSync = async () => {
         const res = await cloudSync.syncWithCloud();
-        if (res.requiresAuth) {
-            setAuthModalVisible(true);
-        } else if (res.success) {
-            Alert.alert('云端同步成功', res.message);
+        if (res.success) {
+            Alert.alert('同步完成', `本次同步拉取 ${res.pulledCount} 条，推送 ${res.syncedCount} 条`);
         } else {
-            Alert.alert('同步提示', res.message);
+            Alert.alert('同步失败', res.message || '网络连接或服务端异常');
         }
     };
 
-    // 保存记录（新增或编辑）
-    const handleSaveTransaction = async (data: {
-        type: TransactionType;
+    // 保存单笔交易
+    const handleSaveTransaction = (data: {
+        type: 'expense' | 'income';
         category: CategoryName;
         amount: number;
         date: string;
@@ -151,7 +153,7 @@ function BookKeepApp() {
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <StatusBar barStyle="light-content" />
 
-            {/* 顶部天空蓝核心卡片（在明细页常驻，提供收支汇总与云状态） */}
+            {/* 顶栏 HeaderCard (仅在明细页常驻，高度仅约 1/4 屏幕) */}
             {currentTab === 'bills' && (
                 <HeaderCard
                     currentMonth={currentMonth}
@@ -161,14 +163,10 @@ function BookKeepApp() {
                     filterType={filterType}
                     isLoggedIn={Boolean(currentUser)}
                     userDisplayName={currentUser?.displayName || currentUser?.username}
+                    activeSubTab={subTab}
+                    onSubTabChange={setSubTab}
                     onFilterChange={setFilterType}
-                    onSyncPress={() => {
-                        if (!currentUser) {
-                            setAuthModalVisible(true);
-                        } else {
-                            setSyncModalVisible(true);
-                        }
-                    }}
+                    onSyncPress={() => setCurrentTab('mine')}
                     onMonthPrev={handleMonthPrev}
                     onMonthNext={handleMonthNext}
                 />
@@ -177,75 +175,73 @@ function BookKeepApp() {
             {/* 主视图内容区域 */}
             <View style={styles.mainContent}>
                 {currentTab === 'bills' ? (
-                    <ScrollView
-                        style={styles.billsListScroll}
-                        contentContainerStyle={styles.billsListContainer}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        {groupedDays.length === 0 ? (
-                            <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyIcon}>📝</Text>
-                                <Text style={styles.emptyTitle}>本月暂无记账明细</Text>
-                                <Text style={styles.emptySub}>点击下方蓝色的「＋」按钮开始记一笔吧！</Text>
-                            </View>
-                        ) : (
-                            groupedDays.map(group => (
-                                <View key={group.date} style={styles.dayGroup}>
-                                    {/* 日期分组表头 */}
-                                    <View style={styles.dayHeaderRow}>
-                                        <Text style={styles.dayDateText}>{group.dayText}</Text>
-                                        <View style={styles.daySummaryBox}>
-                                            {group.totalExpense > 0 && (
-                                                <Text style={styles.dayExpenseText}>
-                                                    支 ¥{formatMoney(group.totalExpense)}
-                                                </Text>
-                                            )}
-                                            {group.totalIncome > 0 && (
-                                                <Text style={styles.dayIncomeText}>
-                                                    收 ¥{formatMoney(group.totalIncome)}
-                                                </Text>
-                                            )}
-                                        </View>
-                                    </View>
-
-                                    {/* 该日期下的每一笔账目 */}
-                                    {group.items.map(tx => (
-                                        <TransactionItem
-                                            key={tx.id}
-                                            item={tx}
-                                            onPress={handleEditItem}
-                                            onDelete={handleDeleteItem}
-                                        />
-                                    ))}
+                    subTab === 'bills' ? (
+                        <ScrollView
+                            style={styles.billsListScroll}
+                            contentContainerStyle={styles.billsListContainer}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            {groupedDays.length === 0 ? (
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyIcon}>📝</Text>
+                                    <Text style={styles.emptyTitle}>本月暂无记账明细</Text>
+                                    <Text style={styles.emptySub}>点击底部中间的「＋」按钮开始记一笔吧！</Text>
                                 </View>
-                            ))
-                        )}
-                    </ScrollView>
+                            ) : (
+                                groupedDays.map(group => (
+                                    <View key={group.date} style={styles.dayGroup}>
+                                        {/* 日期分组表头 */}
+                                        <View style={styles.dayHeaderRow}>
+                                            <Text style={styles.dayDateText}>{group.dayText}</Text>
+                                            <View style={styles.daySummaryBox}>
+                                                {group.totalExpense > 0 && (
+                                                    <Text style={styles.dayExpenseText}>
+                                                        支 ¥{formatMoney(group.totalExpense)}
+                                                    </Text>
+                                                )}
+                                                {group.totalIncome > 0 && (
+                                                    <Text style={styles.dayIncomeText}>
+                                                        收 ¥{formatMoney(group.totalIncome)}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </View>
+
+                                        {/* 该日期下的每一笔账目 */}
+                                        {group.items.map(tx => (
+                                            <TransactionItem
+                                                key={tx.id}
+                                                item={tx}
+                                                onPress={handleEditItem}
+                                                onDelete={handleDeleteItem}
+                                            />
+                                        ))}
+                                    </View>
+                                ))
+                            )}
+                        </ScrollView>
+                    ) : (
+                        <StatisticsView
+                            currentMonth={currentMonth}
+                            transactions={transactions}
+                            onMonthPrev={handleMonthPrev}
+                            onMonthNext={handleMonthNext}
+                            showHeader={false}
+                        />
+                    )
                 ) : (
-                    <StatisticsView
-                        currentMonth={currentMonth}
-                        transactions={transactions}
-                        onMonthPrev={handleMonthPrev}
-                        onMonthNext={handleMonthNext}
+                    <MineView
+                        currentUser={currentUser}
+                        syncStatus={syncStatus}
+                        onOpenAuth={() => setAuthModalVisible(true)}
+                        onTriggerSync={handleTriggerSync}
                     />
                 )}
             </View>
 
-            {/* 底部悬浮记账按钮 (Floating Sky Blue Add Button) */}
-            <TouchableOpacity
-                style={[styles.floatingAddBtn, { bottom: insets.bottom + 65 }]}
-                onPress={() => {
-                    setEditingItem(null);
-                    setAddModalVisible(true);
-                }}
-                activeOpacity={0.85}
-            >
-                <Text style={styles.floatingAddIcon}>＋</Text>
-                <Text style={styles.floatingAddText}>记一笔</Text>
-            </TouchableOpacity>
-
-            {/* 底部导航栏 Tab Bar */}
-            <View style={[styles.bottomTabBar, { paddingBottom: Math.max(12, insets.bottom) }]}>
+            {/* 底部导航栏: 左侧明细、中间添加按钮、右侧我的 */}
+            <View style={[styles.bottomTabBar, { paddingBottom: Math.max(10, insets.bottom) }]}>
+                {/* 左侧: 明细 */}
                 <TouchableOpacity
                     style={styles.tabItem}
                     onPress={() => setCurrentTab('bills')}
@@ -255,31 +251,35 @@ function BookKeepApp() {
                         📑
                     </Text>
                     <Text style={[styles.tabLabel, currentTab === 'bills' && styles.tabLabelActive]}>
-                        账单明细
+                        明细
                     </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                    style={styles.tabItem}
-                    onPress={() => setCurrentTab('stats')}
-                    activeOpacity={0.7}
-                >
-                    <Text style={[styles.tabIcon, currentTab === 'stats' && styles.tabIconActive]}>
-                        📊
-                    </Text>
-                    <Text style={[styles.tabLabel, currentTab === 'stats' && styles.tabLabelActive]}>
-                        图表统计
-                    </Text>
-                </TouchableOpacity>
+                {/* 中间: 核心添加记账按钮 (突出圆形加号按钮) */}
+                <View style={styles.centerAddBox}>
+                    <TouchableOpacity
+                        style={styles.centerAddBtn}
+                        onPress={() => {
+                            setEditingItem(null);
+                            setAddModalVisible(true);
+                        }}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={styles.centerAddIcon}>＋</Text>
+                    </TouchableOpacity>
+                </View>
 
+                {/* 右侧: 我的 */}
                 <TouchableOpacity
                     style={styles.tabItem}
-                    onPress={() => setSyncModalVisible(true)}
+                    onPress={() => setCurrentTab('mine')}
                     activeOpacity={0.7}
                 >
-                    <Text style={styles.tabIcon}>{currentUser ? '☁️' : '👤'}</Text>
-                    <Text style={styles.tabLabel}>
-                        {currentUser ? (currentUser.displayName || '云端同步') : '登录/同步'}
+                    <Text style={[styles.tabIcon, currentTab === 'mine' && styles.tabIconActive]}>
+                        {currentUser ? '👤' : '⚙️'}
+                    </Text>
+                    <Text style={[styles.tabLabel, currentTab === 'mine' && styles.tabLabelActive]}>
+                        我的
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -304,7 +304,10 @@ function BookKeepApp() {
             <AuthModal
                 visible={authModalVisible}
                 onClose={() => setAuthModalVisible(false)}
-                onSuccess={() => setSyncModalVisible(true)}
+                onSuccess={() => {
+                    setAuthModalVisible(false);
+                    cloudSync.syncWithCloud();
+                }}
             />
         </View>
     );
@@ -331,19 +334,19 @@ const styles = StyleSheet.create({
     },
     billsListContainer: {
         paddingHorizontal: 16,
-        paddingTop: 14,
-        paddingBottom: 90,
+        paddingTop: 12,
+        paddingBottom: 24,
     },
     dayGroup: {
-        marginBottom: 12,
+        marginBottom: 10,
     },
     dayHeaderRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 4,
-        paddingVertical: 6,
-        marginBottom: 4,
+        paddingVertical: 5,
+        marginBottom: 3,
     },
     dayDateText: {
         fontSize: 13,
@@ -382,57 +385,35 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: Colors.textMuted,
     },
-    floatingAddBtn: {
-        position: 'absolute',
-        right: 20,
-        backgroundColor: Colors.primary,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 18,
-        paddingVertical: 12,
-        borderRadius: 28,
-        shadowColor: Colors.primaryDark,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-        elevation: 8,
-    },
-    floatingAddIcon: {
-        color: '#FFFFFF',
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginRight: 4,
-    },
-    floatingAddText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontWeight: '700',
-    },
+    // 底部导航栏
     bottomTabBar: {
         flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#E2E8F0',
-        paddingTop: 8,
+        paddingTop: 6,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-        elevation: 5,
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 8,
     },
     tabItem: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
+        paddingVertical: 4,
     },
     tabIcon: {
         fontSize: 20,
         marginBottom: 2,
-        opacity: 0.65,
+        opacity: 0.6,
     },
     tabIconActive: {
         opacity: 1,
-        transform: [{ scale: 1.1 }],
+        transform: [{ scale: 1.08 }],
     },
     tabLabel: {
         fontSize: 11,
@@ -442,5 +423,32 @@ const styles = StyleSheet.create({
     tabLabelActive: {
         color: Colors.primary,
         fontWeight: '700',
+    },
+    // 中间突出添加按钮
+    centerAddBox: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: -18,
+    },
+    centerAddBtn: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: Colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: Colors.primaryDark,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 8,
+        elevation: 7,
+        borderWidth: 3,
+        borderColor: '#FFFFFF',
+    },
+    centerAddIcon: {
+        color: '#FFFFFF',
+        fontSize: 26,
+        fontWeight: 'bold',
+        lineHeight: 28,
     },
 });
