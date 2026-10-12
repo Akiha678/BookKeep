@@ -48,11 +48,22 @@ export interface Transaction {
   isDeleted?: boolean;
 }
 
+export interface UserInfo {
+  id?: number;
+  username: string;
+  displayName: string;
+  email?: string;
+  phone?: string;
+  avatarColor?: number;
+  token: string;
+}
+
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline';
 
 export interface CloudSyncConfig {
   autoSync: boolean;
   serverUrl: string;
+  currentUser: UserInfo | null;
   token?: string;
   username?: string;
   displayName?: string;

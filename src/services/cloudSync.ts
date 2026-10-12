@@ -1,16 +1,13 @@
 import { SyncStatus, SyncApiResponse } from '../type/bookkeep';
 import { storage } from './storage';
+import { authService, AuthActionResult } from './authService';
 
-export interface LoginResult {
+export interface SyncResult {
   success: boolean;
+  syncedCount: number;
+  pulledCount: number;
   message: string;
-  token?: string;
-  user?: {
-    id: number;
-    username: string;
-    displayName: string;
-    email: string;
-  };
+  requiresAuth?: boolean;
 }
 
 class CloudSyncService {
@@ -40,88 +37,34 @@ class CloudSyncService {
   }
 
   /**
-   * 登录服务端获取访问令牌 (POST /auth/login)
+   * 登录服务端获取访问令牌 (代理到 authService)
    */
   public async login(
     account: string,
     password: string,
     baseUrl: string = 'http://10.10.1.9:8080'
-  ): Promise<LoginResult> {
-    try {
-      const cleanBase = baseUrl.replace(/\/+$/, '');
-      const loginUrl = `${cleanBase}/auth/login`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      const resp = await fetch(loginUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: account.trim(),
-          password: password.trim(),
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const data = await resp.json();
-      if (!resp.ok || (data.code && data.code !== 1000 && !data.accessToken)) {
-        return {
-          success: false,
-          message: data.message || `登录失败 (HTTP ${resp.status})`,
-        };
-      }
-
-      const accessToken = data.accessToken || data.data?.accessToken;
-      if (!accessToken) {
-        return {
-          success: false,
-          message: data.message || '登录响应中未包含有效 Token',
-        };
-      }
-
-      // 保存到本地同步配置
-      storage.updateSyncConfig({
-        token: accessToken,
-        username: data.username || account,
-        displayName: data.displayName || data.username || account,
-      });
-
-      return {
-        success: true,
-        message: '登录成功，已自动配置云端访问凭证',
-        token: accessToken,
-        user: {
-          id: data.id,
-          username: data.username,
-          displayName: data.displayName,
-          email: data.email,
-        },
-      };
-    } catch (err: any) {
-      const msg = err.name === 'AbortError' ? '连接登录服务超时' : err.message || '网络连接失败';
-      return {
-        success: false,
-        message: `无法连接到 ${baseUrl}: ${msg}`,
-      };
-    }
+  ): Promise<AuthActionResult> {
+    return authService.loginByPassword(account, password, baseUrl);
   }
 
   /**
    * 执行与服务端增量双向同步 (POST /bookkeep/sync)
    */
-  public async syncWithCloud(): Promise<{
-    success: boolean;
-    syncedCount: number;
-    pulledCount: number;
-    message: string;
-  }> {
+  public async syncWithCloud(): Promise<SyncResult> {
     if (this.status === 'syncing') {
       return { success: false, syncedCount: 0, pulledCount: 0, message: '正在同步中，请稍候' };
+    }
+
+    const user = storage.getUser();
+    if (!user || !user.token) {
+      this.setStatus('idle', null);
+      return {
+        success: false,
+        syncedCount: 0,
+        pulledCount: 0,
+        requiresAuth: true,
+        message: '未登录账号，请先登录后再进行云端同步',
+      };
     }
 
     this.setStatus('syncing', null);
@@ -131,10 +74,6 @@ class CloudSyncService {
     try {
       if (!config.serverUrl) {
         throw new Error('未配置服务端同步地址');
-      }
-
-      if (!config.token) {
-        throw new Error('请先在同步中心登录账号或填入认证 Token');
       }
 
       // 组装格式化为 Spring Boot 期望的 BookkeepItemDto
@@ -159,9 +98,9 @@ class CloudSyncService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const authHeader = config.token.startsWith('Bearer ')
-        ? config.token
-        : `Bearer ${config.token}`;
+      const authHeader = user.token.startsWith('Bearer ')
+        ? user.token
+        : `Bearer ${user.token}`;
 
       const response = await fetch(config.serverUrl, {
         method: 'POST',
@@ -176,7 +115,8 @@ class CloudSyncService {
       clearTimeout(timeoutId);
 
       if (response.status === 401) {
-        throw new Error('认证失效或已过期 (401)，请在同步中心重新登录');
+        storage.setUser(null);
+        throw new Error('登录状态已失效或过期 (401)，请重新登录');
       }
 
       if (!response.ok) {

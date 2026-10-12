@@ -16,6 +16,8 @@ interface HeaderCardProps {
   syncStatus: SyncStatus;
   unsyncedCount: number;
   filterType: 'all' | 'expense' | 'income';
+  isLoggedIn?: boolean;
+  userDisplayName?: string;
   onFilterChange: (type: 'all' | 'expense' | 'income') => void;
   onSyncPress: () => void;
   onMonthPrev: () => void;
@@ -28,6 +30,8 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
   syncStatus,
   unsyncedCount,
   filterType,
+  isLoggedIn = false,
+  userDisplayName,
   onFilterChange,
   onSyncPress,
   onMonthPrev,
@@ -39,18 +43,21 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
 
   // 同步指示器状态文案与样式
   const getSyncBadge = () => {
+    if (!isLoggedIn) {
+      return { text: '点击登录同步', icon: '👤', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
+    }
     switch (syncStatus) {
       case 'syncing':
         return { text: '正在同步...', icon: '🔄', color: '#FFFFFF', bg: 'rgba(255, 255, 255, 0.25)' };
       case 'success':
-        return { text: '云端已同步', icon: '☁️ ✓', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
+        return { text: userDisplayName ? `${userDisplayName}已同步` : '云端已同步', icon: '☁️ ✓', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
       case 'error':
         return { text: '同步失败', icon: '⚠️', color: '#FEE2E2', bg: 'rgba(239, 68, 68, 0.3)' };
       default:
         if (unsyncedCount > 0) {
           return { text: `${unsyncedCount}笔待同步`, icon: '☁️ ⬆', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
         }
-        return { text: '云端就绪', icon: '☁️', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
+        return { text: userDisplayName ? `${userDisplayName}在线` : '云端已同步', icon: '☁️', color: '#E0F2FE', bg: 'rgba(255, 255, 255, 0.2)' };
     }
   };
 

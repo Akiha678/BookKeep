@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Transaction, SyncStatus, TransactionType, CategoryName } from '../type/bookkeep';
+import { Transaction, SyncStatus, TransactionType, CategoryName, UserInfo } from '../type/bookkeep';
 import { Colors } from '../theme/colors';
 import { storage } from '../services/storage';
 import { cloudSync } from '../services/cloudSync';
@@ -10,6 +10,7 @@ import { TransactionItem } from '../components/TransactionItem';
 import { AddTransactionModal } from '../components/AddTransactionModal';
 import { StatisticsView } from '../components/StatisticsView';
 import { CloudSyncModal } from '../components/CloudSyncModal';
+import { AuthModal } from '../components/AuthModal';
 import { calculateMonthlySummary, getCurrentMonthStr, groupTransactionsByDay, formatMoney } from '../utils/format';
 
 function BookKeepApp() {
@@ -26,8 +27,10 @@ function BookKeepApp() {
     const [addModalVisible, setAddModalVisible] = useState(false);
     const [editingItem, setEditingItem] = useState<Transaction | null>(null);
     const [syncModalVisible, setSyncModalVisible] = useState(false);
+    const [authModalVisible, setAuthModalVisible] = useState(false);
+    const [currentUser, setCurrentUser] = useState<UserInfo | null>(storage.getUser());
 
-    // 监听存储与同步状态
+    // 监听存储、同步与用户登录状态
     useEffect(() => {
         const unsubStorage = storage.subscribe(items => {
             setTransactions(items);
@@ -35,10 +38,14 @@ function BookKeepApp() {
         const unsubSync = cloudSync.subscribeStatus(status => {
             setSyncStatus(status);
         });
+        const unsubUser = storage.subscribeUser(user => {
+            setCurrentUser(user);
+        });
 
         return () => {
             unsubStorage();
             unsubSync();
+            unsubUser();
         };
     }, []);
 
@@ -97,7 +104,9 @@ function BookKeepApp() {
     // 触发云端同步
     const handleTriggerSync = async () => {
         const res = await cloudSync.syncWithCloud();
-        if (res.success) {
+        if (res.requiresAuth) {
+            setAuthModalVisible(true);
+        } else if (res.success) {
             Alert.alert('云端同步成功', res.message);
         } else {
             Alert.alert('同步提示', res.message);
@@ -150,8 +159,16 @@ function BookKeepApp() {
                     syncStatus={syncStatus}
                     unsyncedCount={unsyncedCount}
                     filterType={filterType}
+                    isLoggedIn={Boolean(currentUser)}
+                    userDisplayName={currentUser?.displayName || currentUser?.username}
                     onFilterChange={setFilterType}
-                    onSyncPress={() => setSyncModalVisible(true)}
+                    onSyncPress={() => {
+                        if (!currentUser) {
+                            setAuthModalVisible(true);
+                        } else {
+                            setSyncModalVisible(true);
+                        }
+                    }}
                     onMonthPrev={handleMonthPrev}
                     onMonthNext={handleMonthNext}
                 />
@@ -260,8 +277,10 @@ function BookKeepApp() {
                     onPress={() => setSyncModalVisible(true)}
                     activeOpacity={0.7}
                 >
-                    <Text style={styles.tabIcon}>☁️</Text>
-                    <Text style={styles.tabLabel}>云端同步</Text>
+                    <Text style={styles.tabIcon}>{currentUser ? '☁️' : '👤'}</Text>
+                    <Text style={styles.tabLabel}>
+                        {currentUser ? (currentUser.displayName || '云端同步') : '登录/同步'}
+                    </Text>
                 </TouchableOpacity>
             </View>
 
@@ -279,6 +298,13 @@ function BookKeepApp() {
                 onClose={() => setSyncModalVisible(false)}
                 syncStatus={syncStatus}
                 onTriggerSync={handleTriggerSync}
+            />
+
+            {/* 登录/注册认证模态弹窗 */}
+            <AuthModal
+                visible={authModalVisible}
+                onClose={() => setAuthModalVisible(false)}
+                onSuccess={() => setSyncModalVisible(true)}
             />
         </View>
     );

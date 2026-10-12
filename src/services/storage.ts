@@ -1,173 +1,58 @@
-import { Transaction, CloudSyncConfig } from '../type/bookkeep';
-import { getTodayDateStr, getYesterdayDateStr } from '../utils/format';
+import { Transaction, CloudSyncConfig, UserInfo } from '../type/bookkeep';
 
 const DEFAULT_SERVER_URL = 'http://10.10.1.9:8080/bookkeep/sync';
-
-// 预设丰富示例数据
-function generateInitialTransactions(): Transaction[] {
-  const today = getTodayDateStr();
-  const yesterday = getYesterdayDateStr();
-  const now = Date.now();
-
-  return [
-    {
-      id: 'tx_1',
-      type: 'expense',
-      category: '餐饮',
-      amount: 38.5,
-      date: today,
-      time: '12:30',
-      note: '商务午餐工作便当',
-      createdAt: now - 3600000 * 2,
-      updatedAt: now - 3600000 * 2,
-      synced: true,
-    },
-    {
-      id: 'tx_2',
-      type: 'expense',
-      category: '交通',
-      amount: 15.0,
-      date: today,
-      time: '08:45',
-      note: '地铁出行上班单程',
-      createdAt: now - 3600000 * 6,
-      updatedAt: now - 3600000 * 6,
-      synced: true,
-    },
-    {
-      id: 'tx_3',
-      type: 'income',
-      category: '红包',
-      amount: 88.0,
-      date: today,
-      time: '10:15',
-      note: '周末朋友婚礼礼金回礼',
-      createdAt: now - 3600000 * 4,
-      updatedAt: now - 3600000 * 4,
-      synced: true,
-    },
-    {
-      id: 'tx_4',
-      type: 'expense',
-      category: '日用',
-      amount: 68.9,
-      date: yesterday,
-      time: '19:20',
-      note: '便利店纸巾洗发水',
-      createdAt: now - 86400000 - 3600000,
-      updatedAt: now - 86400000 - 3600000,
-      synced: true,
-    },
-    {
-      id: 'tx_5',
-      type: 'expense',
-      category: '购物',
-      amount: 299.0,
-      date: yesterday,
-      time: '15:10',
-      note: '秋季换季卫衣',
-      createdAt: now - 86400000 - 3600000 * 5,
-      updatedAt: now - 86400000 - 3600000 * 5,
-      synced: true,
-    },
-    {
-      id: 'tx_6',
-      type: 'expense',
-      category: '运动',
-      amount: 120.0,
-      date: yesterday,
-      time: '20:30',
-      note: '羽毛球场馆预约及球拍穿线',
-      createdAt: now - 86400000,
-      updatedAt: now - 86400000,
-      synced: true,
-    },
-    {
-      id: 'tx_7',
-      type: 'income',
-      category: '工资',
-      amount: 12500.0,
-      date: yesterday.substring(0, 8) + '05',
-      time: '10:00',
-      note: '10月份基本工资及绩效',
-      createdAt: now - 86400000 * 5,
-      updatedAt: now - 86400000 * 5,
-      synced: true,
-    },
-    {
-      id: 'tx_8',
-      type: 'expense',
-      category: '住房',
-      amount: 2600.0,
-      date: yesterday.substring(0, 8) + '06',
-      time: '14:00',
-      note: '本月房租及物业费',
-      createdAt: now - 86400000 * 4,
-      updatedAt: now - 86400000 * 4,
-      synced: true,
-    },
-    {
-      id: 'tx_9',
-      type: 'expense',
-      category: '娱乐',
-      amount: 70.0,
-      date: yesterday.substring(0, 8) + '07',
-      time: '21:00',
-      note: '周末院线电影票',
-      createdAt: now - 86400000 * 3,
-      updatedAt: now - 86400000 * 3,
-      synced: true,
-    },
-    {
-      id: 'tx_10',
-      type: 'expense',
-      category: '通讯',
-      amount: 99.0,
-      date: yesterday.substring(0, 8) + '08',
-      time: '09:00',
-      note: '中国移动手机话费及5G宽带',
-      createdAt: now - 86400000 * 2,
-      updatedAt: now - 86400000 * 2,
-      synced: true,
-    },
-    {
-      id: 'tx_11',
-      type: 'income',
-      category: '兼职',
-      amount: 800.0,
-      date: yesterday.substring(0, 8) + '08',
-      time: '18:00',
-      note: '小程序前端页面外包报酬',
-      createdAt: now - 86400000 * 2,
-      updatedAt: now - 86400000 * 2,
-      synced: true,
-    },
-    {
-      id: 'tx_12',
-      type: 'expense',
-      category: '礼物',
-      amount: 188.0,
-      date: yesterday.substring(0, 8) + '09',
-      time: '16:30',
-      note: '朋友生日定制礼盒',
-      createdAt: now - 86400000,
-      updatedAt: now - 86400000,
-      synced: true,
-    },
-  ];
-}
 
 class BookKeepStorage {
   private transactions: Transaction[] = [];
   private listeners: Set<(items: Transaction[]) => void> = new Set();
+  private userListeners: Set<(user: UserInfo | null) => void> = new Set();
   private syncConfig: CloudSyncConfig = {
     autoSync: true,
     serverUrl: DEFAULT_SERVER_URL,
+    currentUser: null,
+    token: '',
+    username: '',
+    displayName: '',
     lastSyncTime: 0,
   };
 
   constructor() {
-    this.transactions = generateInitialTransactions();
+    this.transactions = [];
+  }
+
+  /**
+   * 获取当前已登录的用户信息
+   */
+  public getUser(): UserInfo | null {
+    return this.syncConfig.currentUser;
+  }
+
+  /**
+   * 设置当前登录用户或清空退出登录
+   */
+  public setUser(user: UserInfo | null) {
+    this.syncConfig.currentUser = user;
+    this.syncConfig.token = user?.token || '';
+    this.syncConfig.username = user?.username || '';
+    this.syncConfig.displayName = user?.displayName || user?.username || '';
+    this.userListeners.forEach(fn => fn(user));
+  }
+
+  /**
+   * 是否已处于登录状态
+   */
+  public isLoggedIn(): boolean {
+    return Boolean(this.syncConfig.currentUser?.token);
+  }
+
+  /**
+   * 监听用户登录态变化
+   */
+  public subscribeUser(listener: (user: UserInfo | null) => void): () => void {
+    this.userListeners.add(listener);
+    return () => {
+      this.userListeners.delete(listener);
+    };
   }
 
   /**
@@ -331,10 +216,14 @@ class BookKeepStorage {
     }
   }
 
-  public resetToDefault() {
-    this.transactions = generateInitialTransactions();
-    this.syncConfig.lastSyncTime = Date.now();
+  public clearAllData() {
+    this.transactions = [];
+    this.syncConfig.lastSyncTime = 0;
     this.notify();
+  }
+
+  public resetToDefault() {
+    this.clearAllData();
   }
 }
 

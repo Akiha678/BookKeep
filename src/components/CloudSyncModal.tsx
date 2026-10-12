@@ -12,15 +12,18 @@ import {
   ScrollView,
 } from 'react-native';
 import { Colors } from '../theme/colors';
-import { SyncStatus } from '../type/bookkeep';
+import { SyncStatus, UserInfo } from '../type/bookkeep';
 import { storage } from '../services/storage';
 import { cloudSync } from '../services/cloudSync';
+import { authService } from '../services/authService';
+import { AuthModal } from './AuthModal';
 
 interface CloudSyncModalProps {
   visible: boolean;
   onClose: () => void;
   syncStatus: SyncStatus;
   onTriggerSync: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
@@ -30,30 +33,37 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   onTriggerSync,
 }) => {
   const [config, setConfig] = useState(storage.getSyncConfig());
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(storage.getUser());
   const [autoSync, setAutoSync] = useState(config.autoSync);
   const [serverUrl, setServerUrl] = useState(config.serverUrl);
-  const [token, setToken] = useState(config.token || '');
 
-  // 登录表单状态
-  const [showLogin, setShowLogin] = useState(false);
-  const [loginAccount, setLoginAccount] = useState('admin1');
-  const [loginPassword, setLoginPassword] = useState('123456');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  // 内部嵌套唤起登录注册弹窗
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+
+  // 高级配置折叠状态
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // 备份与恢复
   const [backupJson, setBackupJson] = useState('');
   const [showJsonInput, setShowJsonInput] = useState(false);
 
-  // 当弹窗打开时重新同步配置数据
   useEffect(() => {
     if (visible) {
       const latest = storage.getSyncConfig();
       setConfig(latest);
+      setCurrentUser(storage.getUser());
       setAutoSync(latest.autoSync);
       setServerUrl(latest.serverUrl);
-      setToken(latest.token || '');
     }
   }, [visible]);
+
+  useEffect(() => {
+    const unsub = storage.subscribeUser(user => {
+      setCurrentUser(user);
+      setConfig(storage.getSyncConfig());
+    });
+    return unsub;
+  }, []);
 
   const localCount = storage.getTransactions().length;
   const unsyncedCount = storage.getUnsyncedTransactions().length;
@@ -67,56 +77,24 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       })
     : '尚未同步';
 
-  const handleSaveConfig = () => {
+  const handleSaveAdvancedConfig = () => {
     storage.updateSyncConfig({
       autoSync,
       serverUrl: serverUrl.trim(),
-      token: token.trim(),
     });
     setConfig(storage.getSyncConfig());
-    Alert.alert('设置成功', '云端同步参数已更新');
-  };
-
-  const handleLogin = async () => {
-    if (!loginAccount.trim() || !loginPassword.trim()) {
-      Alert.alert('提示', '请输入用户名和密码');
-      return;
-    }
-    setIsLoggingIn(true);
-    // 从 serverUrl 解析 baseUrl
-    let baseUrl = 'http://10.10.1.9:8080';
-    try {
-      const urlObj = new URL(serverUrl);
-      baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-    } catch {
-      // 保持默认
-    }
-
-    const res = await cloudSync.login(loginAccount, loginPassword, baseUrl);
-    setIsLoggingIn(false);
-
-    if (res.success) {
-      const updated = storage.getSyncConfig();
-      setConfig(updated);
-      setToken(updated.token || '');
-      setShowLogin(false);
-      Alert.alert('登录成功', `已绑定账号: ${res.user?.username || loginAccount}，凭证已保存并可直接同步`);
-    } else {
-      Alert.alert('登录失败', res.message);
-    }
+    Alert.alert('设置成功', '服务端接口地址已更新');
   };
 
   const handleLogout = () => {
-    Alert.alert('退出登录', '确定清除当前账号的云端登录凭证吗？', [
+    Alert.alert('退出登录', '确定退出当前账号吗？退出后将暂停云端数据同步。', [
       { text: '取消', style: 'cancel' },
       {
-        text: '确定',
+        text: '确定退出',
         style: 'destructive',
-        onPress: () => {
-          storage.updateSyncConfig({ token: '', username: '', displayName: '' });
-          const updated = storage.getSyncConfig();
-          setConfig(updated);
-          setToken('');
+        onPress: async () => {
+          await authService.logoff();
+          Alert.alert('已退出', '当前账号已退出登录');
         },
       },
     ]);
@@ -147,15 +125,15 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     }
   };
 
-  const handleReset = () => {
-    Alert.alert('重置数据', '确定要重置为初始默认精美演示账本吗？', [
+  const handleClear = () => {
+    Alert.alert('清空本地账本', '确定清空本地所有记账数据吗？未同步的本地记录将会被清除。', [
       { text: '取消', style: 'cancel' },
       {
-        text: '重置',
+        text: '确定清空',
         style: 'destructive',
         onPress: () => {
-          storage.resetToDefault();
-          Alert.alert('已重置', '账本已恢复初始数据并更新');
+          storage.clearAllData();
+          Alert.alert('已清空', '本地记账数据已全部清空');
         },
       },
     ]);
@@ -171,7 +149,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           <View style={styles.headerRow}>
             <View style={styles.titleWithIcon}>
               <Text style={styles.titleIcon}>☁️</Text>
-              <Text style={styles.headerTitle}>云端同步中心 (Spring Boot)</Text>
+              <Text style={styles.headerTitle}>云端同步中心</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
@@ -179,10 +157,56 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           </View>
 
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* 状态看板卡片 */}
+            {/* 1. 用户账号身份卡片 */}
+            {currentUser ? (
+              <View style={styles.userCard}>
+                <View style={styles.userAvatar}>
+                  <Text style={styles.avatarText}>
+                    {currentUser.displayName ? currentUser.displayName.slice(0, 1).toUpperCase() : '👤'}
+                  </Text>
+                </View>
+                <View style={styles.userMeta}>
+                  <View style={styles.userNameRow}>
+                    <Text style={styles.userNameText}>{currentUser.displayName || currentUser.username}</Text>
+                    <View style={styles.onlineBadge}>
+                      <Text style={styles.onlineBadgeText}>已登录</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.userSubText}>
+                    账号: {currentUser.username}
+                    {currentUser.email ? ` | ${currentUser.email}` : ''}
+                    {currentUser.phone ? ` | ${currentUser.phone}` : ''}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                  <Text style={styles.logoutBtnText}>退出</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.guestCard}>
+                <View style={styles.guestContent}>
+                  <Text style={styles.guestIcon}>👤</Text>
+                  <View style={styles.guestMeta}>
+                    <Text style={styles.guestTitle}>尚未登录账号</Text>
+                    <Text style={styles.guestDesc}>
+                      登录或注册后，记账数据即可安全双向同步到云端数据库。
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.guestLoginBtn}
+                  onPress={() => setAuthModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.guestLoginBtnText}>立即登录 / 注册账号</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* 2. 同步状态概览看板 */}
             <View style={styles.statusCard}>
               <View style={styles.statusHeaderRow}>
-                <Text style={styles.statusCardTitle}>局域网同步状态</Text>
+                <Text style={styles.statusCardTitle}>云端同步状态</Text>
                 <View
                   style={[
                     styles.statusPill,
@@ -190,17 +214,24 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                       ? styles.statusPillSyncing
                       : syncStatus === 'error'
                       ? styles.statusPillError
-                      : styles.statusPillSuccess,
+                      : currentUser
+                      ? styles.statusPillSuccess
+                      : styles.statusPillOffline,
                   ]}
                 >
-                  <Text style={styles.statusPillText}>
+                  <Text
+                    style={[
+                      styles.statusPillText,
+                      !currentUser && styles.statusPillTextOffline,
+                    ]}
+                  >
                     {syncStatus === 'syncing'
                       ? '同步中'
                       : syncStatus === 'error'
                       ? '同步异常'
-                      : config.token
-                      ? '已联机在线'
-                      : '未登录凭证'}
+                      : currentUser
+                      ? '已在线'
+                      : '离线/未登录'}
                   </Text>
                 </View>
               </View>
@@ -208,19 +239,24 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               <View style={styles.metricsRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricNumber}>{localCount}</Text>
-                  <Text style={styles.metricLabel}>本地有效账目</Text>
+                  <Text style={styles.metricLabel}>本地记账总数</Text>
                 </View>
                 <View style={styles.metricDivider} />
                 <View style={styles.metricItem}>
-                  <Text style={[styles.metricNumber, unsyncedCount > 0 && { color: Colors.warning }]}>
+                  <Text
+                    style={[
+                      styles.metricNumber,
+                      unsyncedCount > 0 && { color: Colors.warning },
+                    ]}
+                  >
                     {unsyncedCount}
                   </Text>
                   <Text style={styles.metricLabel}>待上传变更</Text>
                 </View>
                 <View style={styles.metricDivider} />
                 <View style={styles.metricItem}>
-                  <Text style={styles.metricNumber}>{config.token ? '已授权' : '未授权'}</Text>
-                  <Text style={styles.metricLabel}>鉴权状态</Text>
+                  <Text style={styles.metricNumber}>{currentUser ? '双向同步' : '仅本机'}</Text>
+                  <Text style={styles.metricLabel}>同步模式</Text>
                 </View>
               </View>
 
@@ -232,10 +268,19 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 </View>
               )}
 
-              {/* 立即同步按钮 */}
+              {/* 立即同步大按钮 */}
               <TouchableOpacity
-                style={[styles.syncNowBtn, syncStatus === 'syncing' && styles.syncNowBtnDisabled]}
-                onPress={onTriggerSync}
+                style={[
+                  styles.syncNowBtn,
+                  (syncStatus === 'syncing' || !currentUser) && styles.syncNowBtnDisabled,
+                ]}
+                onPress={() => {
+                  if (!currentUser) {
+                    setAuthModalVisible(true);
+                  } else {
+                    onTriggerSync();
+                  }
+                }}
                 disabled={syncStatus === 'syncing'}
                 activeOpacity={0.8}
               >
@@ -245,94 +290,21 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                   <Text style={styles.syncBtnIcon}>🔄</Text>
                 )}
                 <Text style={styles.syncNowBtnText}>
-                  {syncStatus === 'syncing' ? '正在与 10.10.1.9 同步...' : '立即同步增量数据'}
+                  {!currentUser
+                    ? '登录后立即同步云端数据'
+                    : syncStatus === 'syncing'
+                    ? '正在与云端服务器增量同步...'
+                    : '立即同步增量数据'}
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* 用户账号与鉴权卡片 */}
+            {/* 3. 同步开关设置 */}
             <View style={styles.sectionCard}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionHeader}>后端账号与凭证</Text>
-                {config.token ? (
-                  <TouchableOpacity onPress={handleLogout}>
-                    <Text style={styles.linkActionText}>退出绑定</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity onPress={() => setShowLogin(!showLogin)}>
-                    <Text style={styles.linkActionText}>{showLogin ? '收起登录' : '快捷登录'}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {config.token ? (
-                <View style={styles.accountBoundBox}>
-                  <View style={styles.accountAvatar}>
-                    <Text style={styles.avatarText}>👤</Text>
-                  </View>
-                  <View style={styles.accountMeta}>
-                    <Text style={styles.accountName}>
-                      {config.displayName || config.username || '已登录用户'}
-                    </Text>
-                    <Text style={styles.accountTokenDesc}>
-                      Token: {config.token.substring(0, 10)}...{config.token.substring(config.token.length - 6)}
-                    </Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.unboundBox}>
-                  <Text style={styles.unboundTip}>
-                    当前尚未绑定服务端身份。服务端启用了 Bearer 校验，请快捷登录或输入 Token。
-                  </Text>
-                </View>
-              )}
-
-              {showLogin && !config.token && (
-                <View style={styles.loginFormBox}>
-                  <Text style={styles.inputLabel}>XinChat 账号 (用户名/邮箱)</Text>
-                  <TextInput
-                    style={styles.urlInput}
-                    value={loginAccount}
-                    onChangeText={setLoginAccount}
-                    placeholder="例如: admin1"
-                    placeholderTextColor="#94A3B8"
-                    autoCapitalize="none"
-                  />
-
-                  <Text style={[styles.inputLabel, styles.inputLabelSpacing]}>密码</Text>
-                  <TextInput
-                    style={styles.urlInput}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    placeholder="输入账号密码"
-                    placeholderTextColor="#94A3B8"
-                    secureTextEntry={true}
-                  />
-
-                  <TouchableOpacity
-                    style={[styles.loginSubmitBtn, isLoggingIn && styles.syncNowBtnDisabled]}
-                    onPress={handleLogin}
-                    disabled={isLoggingIn}
-                  >
-                    {isLoggingIn ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.loginSubmitText}>一键登录服务端</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {/* 云端网络配置项 */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionHeader}>网络与服务配置</Text>
-
-              {/* 自动同步开关 */}
               <View style={styles.switchRow}>
                 <View style={styles.switchInfo}>
                   <Text style={styles.switchTitle}>记账后自动静默同步</Text>
-                  <Text style={styles.switchDesc}>新增/编辑/删除时，后台自动增量上传</Text>
+                  <Text style={styles.switchDesc}>新增、修改或删除时，后台自动增量上传</Text>
                 </View>
                 <Switch
                   value={autoSync}
@@ -344,36 +316,38 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                   trackColor={{ false: '#E2E8F0', true: Colors.primaryLight }}
                 />
               </View>
-
-              {/* 服务端接口地址 */}
-              <View style={styles.urlInputBlock}>
-                <Text style={styles.inputLabel}>服务端同步接口 (默认 10.10.1.9:8080)</Text>
-                <TextInput
-                  style={styles.urlInput}
-                  value={serverUrl}
-                  onChangeText={setServerUrl}
-                  placeholder="http://10.10.1.9:8080/bookkeep/sync"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                />
-
-                <Text style={[styles.inputLabel, styles.inputLabelSpacing]}>自定义 Bearer Token</Text>
-                <TextInput
-                  style={styles.urlInput}
-                  value={token}
-                  onChangeText={setToken}
-                  placeholder="手动填入 Token（可选）"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                />
-
-                <TouchableOpacity style={styles.saveConfigBtn} onPress={handleSaveConfig}>
-                  <Text style={styles.saveConfigText}>保存网络配置</Text>
-                </TouchableOpacity>
-              </View>
             </View>
 
-            {/* 数据备份与恢复 */}
+            {/* 4. 高级网络设置 (可展开) */}
+            <View style={styles.sectionCard}>
+              <TouchableOpacity
+                style={styles.expandRow}
+                onPress={() => setShowAdvanced(!showAdvanced)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.sectionHeaderNoMargin}>服务端接口配置</Text>
+                <Text style={styles.expandArrow}>{showAdvanced ? '▲ 收起' : '▼ 展开'}</Text>
+              </TouchableOpacity>
+
+              {showAdvanced && (
+                <View style={styles.urlInputBlock}>
+                  <Text style={styles.inputLabel}>服务端增量同步接口 (默认 10.10.1.9:8080)</Text>
+                  <TextInput
+                    style={styles.urlInput}
+                    value={serverUrl}
+                    onChangeText={setServerUrl}
+                    placeholder="http://10.10.1.9:8080/bookkeep/sync"
+                    placeholderTextColor="#94A3B8"
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity style={styles.saveConfigBtn} onPress={handleSaveAdvancedConfig}>
+                    <Text style={styles.saveConfigText}>保存接口配置</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* 5. 数据本地备份与恢复 */}
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeader}>数据备份与重置</Text>
               <View style={styles.actionRow}>
@@ -408,8 +382,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 </View>
               )}
 
-              <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
-                <Text style={styles.resetBtnText}>重置为初始演示数据</Text>
+              <TouchableOpacity style={styles.resetBtn} onPress={handleClear}>
+                <Text style={styles.resetBtnText}>清空本地记账数据</Text>
               </TouchableOpacity>
             </View>
 
@@ -417,6 +391,16 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           </ScrollView>
         </View>
       </View>
+
+      {/* 嵌入的登录/注册模态框 */}
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        onSuccess={() => {
+          setAuthModalVisible(false);
+          setCurrentUser(storage.getUser());
+        }}
+      />
     </Modal>
   );
 };
@@ -478,24 +462,132 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 0,
   },
-  statusCard: {
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.primaryLight,
-    borderRadius: 20,
-    padding: 18,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.primaryBorder,
-    marginBottom: 16,
+    marginBottom: 14,
+  },
+  userAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  userMeta: {
+    flex: 1,
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userNameText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginRight: 8,
+  },
+  onlineBadge: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  onlineBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  userSubText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  logoutBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  logoutBtnText: {
+    fontSize: 12,
+    color: Colors.danger,
+    fontWeight: '600',
+  },
+  guestCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 14,
+    marginBottom: 14,
+  },
+  guestContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  guestIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  guestMeta: {
+    flex: 1,
+  },
+  guestTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  guestDesc: {
+    fontSize: 12,
+    color: '#B45309',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  guestLoginBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  guestLoginBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  statusCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
   },
   statusHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   statusCardTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.primaryDark,
+    color: Colors.textPrimary,
   },
   statusPill: {
     paddingHorizontal: 10,
@@ -511,10 +603,16 @@ const styles = StyleSheet.create({
   statusPillError: {
     backgroundColor: '#FEE2E2',
   },
+  statusPillOffline: {
+    backgroundColor: '#E2E8F0',
+  },
   statusPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#065F46',
+  },
+  statusPillTextOffline: {
+    color: '#64748B',
   },
   metricsRow: {
     flexDirection: 'row',
@@ -530,12 +628,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   metricNumber: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: Colors.textPrimary,
   },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.textMuted,
     marginTop: 2,
   },
@@ -584,100 +682,38 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   sectionCard: {
-    backgroundColor: Colors.cardAlt,
-    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  sectionHeaderRow: {
+  sectionHeader: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 12,
+  },
+  sectionHeaderNoMargin: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  expandRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  sectionHeader: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 12,
-  },
-  linkActionText: {
-    fontSize: 13,
+  expandArrow: {
+    fontSize: 12,
     color: Colors.primary,
     fontWeight: '600',
-  },
-  accountBoundBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  accountAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    fontSize: 20,
-  },
-  accountMeta: {
-    flex: 1,
-  },
-  accountName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  accountTokenDesc: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  unboundBox: {
-    backgroundColor: '#FFFBEB',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  unboundTip: {
-    fontSize: 12,
-    color: '#B45309',
-    lineHeight: 18,
-  },
-  loginFormBox: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-  },
-  loginSubmitBtn: {
-    backgroundColor: Colors.skyCyan,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  loginSubmitText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
   },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    marginBottom: 10,
   },
   switchInfo: {
     flex: 1,
@@ -694,7 +730,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   urlInputBlock: {
-    marginTop: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
   inputLabel: {
     fontSize: 12,
@@ -703,7 +742,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   urlInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 10,
@@ -717,7 +756,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 10,
   },
   saveConfigText: {
     color: '#FFFFFF',
@@ -734,7 +773,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 10,
@@ -754,7 +793,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   jsonInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 10,
@@ -778,7 +817,7 @@ const styles = StyleSheet.create({
   },
   resetBtn: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     marginTop: 4,
   },
   resetBtnText: {
@@ -788,9 +827,6 @@ const styles = StyleSheet.create({
   },
   spinnerSpacing: {
     marginRight: 8,
-  },
-  inputLabelSpacing: {
-    marginTop: 10,
   },
   bottomSpacer: {
     height: 30,
