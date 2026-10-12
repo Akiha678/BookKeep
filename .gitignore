@@ -55,6 +55,9 @@ yarn-error.log
 
 # Bundle artifact
 *.jsbundle
+*.bundle
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/assets/*.bundle
 
 # Ruby / CocoaPods
 **/Pods/
@@ -73,3 +76,30 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# IDE
+.vscode/
+.idea/
+
+# AI
+.agents/
+
+# Ruby Bundler
+.bundle/
+
+# Tests
+__tests__/
+
+# Build Outputs
+*.apk
+*.aab
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment variables
+.env
+.env.local
+.env.*.local
