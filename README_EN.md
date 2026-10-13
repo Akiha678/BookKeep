@@ -3,13 +3,15 @@
 # 📖 Sanjin BookKeep (三金记账)
 
 <p align="center">
-  <strong>A lightweight, elegant, and offline-first mobile bookkeeping app with bidirectional cloud synchronization, built with React Native and TypeScript.</strong>
+  <strong>A modern personal finance & bookkeeping application built with React Native, Redux Toolkit, React Navigation 7, and react-native-mmkv.</strong>
 </p>
 
 [![React Native](https://img.shields.io/badge/React_Native-0.87.1-61DAFB?style=flat-square&logo=react&logoColor=black)](https://reactnative.dev)
+[![React Navigation](https://img.shields.io/badge/React_Navigation-7.x-6B52AE?style=flat-square&logo=react&logoColor=white)](https://reactnavigation.org)
+[![Redux Toolkit](https://img.shields.io/badge/Redux_Toolkit-2.x-764ABC?style=flat-square&logo=redux&logoColor=white)](https://redux-toolkit.js.org)
+[![MMKV](https://img.shields.io/badge/MMKV-4.x-FF6F00?style=flat-square)](https://github.com/mrousavy/react-native-mmkv)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.x-6DB33F?style=flat-square&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-lightgrey?style=flat-square)](https://reactnative.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/Akiha678/BookKeep/pulls)
 
@@ -24,13 +26,34 @@
 
 ## 📌 Introduction
 
-**BookKeep** is a personal finance and expense tracking application crafted with an **Offline-First** philosophy. Designed with a clean, vibrant Sky Blue visual aesthetic, it focuses on offering a delightful, distraction-free recording experience.
+**BookKeep** is a personal finance and expense tracking mobile application crafted with an **Offline-First** and **High-Performance** philosophy. The app has been thoroughly reconstructed on top of the industry-standard modern stack: **Redux Toolkit + React Navigation 7 + react-native-mmkv**, following a modular Feature-First directory convention.
 
-The app natively supports seamless bidirectional incremental synchronization with a **Spring Boot** backend database. Transactions can be recorded smoothly even without network connectivity and will automatically synchronize when reconnected, ensuring zero data loss across device switches or app re-installations.
+Designed with a clean, vibrant Sky Blue visual aesthetic, it natively supports seamless bidirectional incremental synchronization with a **Spring Boot** backend database. Transactions can be recorded smoothly even without network connectivity and will automatically synchronize when reconnected, ensuring zero data loss across device switches or app re-installations.
 
 <div align="center">
-  <img src="./screen.png" alt="BookKeep App Screenshot" width="400" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
+  <img src="./docs/image/screen.png" alt="BookKeep App Screenshot" width="400" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
 </div>
+
+---
+
+## 🚀 Architectural Reconstruction Highlights
+
+- ⚡ **Redux Toolkit Standardized State Management**:
+  - State cleanly decoupled into granular slices: `bookkeepSlice`, `authSlice`, and `syncSlice`;
+  - Type-safe hooks (`useAppDispatch`, `useAppSelector`) for state access and mutations;
+  - Zero messy local state passing across screens, with centralized transactions, filter conditions, and global modal state.
+- 🧭 **React Navigation 7 Modern Routing Architecture**:
+  - Leverages `@react-navigation/native` and `@react-navigation/bottom-tabs` for native-grade stack navigation;
+  - Custom BottomTabBar rendering an ergonomic tri-section navigation (Bills, prominent elevated "+" button, Mine);
+  - Unified navigation type registry (`RootTabParamList` & `RootStackParamList`) providing end-to-end type safety.
+- 🏎️ **react-native-mmkv Blazing Fast Storage Engine**:
+  - Replaces slow legacy AsyncStorage with Tencent C++ MMKV native modules for orders-of-magnitude faster I/O;
+  - Synchronous two-way mapping between Redux state and local key-value storage;
+  - Robust in-memory fallback mechanism ensuring zero crashes during testing or unlinked environments.
+- 🧩 **High Cohesion, Low Coupling Feature-First Structure**:
+  - Modular directory organization (`features/bookkeep`, `features/auth`, `features/mine`);
+  - Shared infrastructure layer (`shared/storage`, `shared/theme`, `shared/types`, `shared/utils`);
+  - High enterprise-grade maintainability, cleanliness, and testability.
 
 ---
 
@@ -47,7 +70,7 @@ The app natively supports seamless bidirectional incremental synchronization wit
   - Category percentage breakdown progress bars and ranking lists for deep financial insights;
   - Daily timeline groups displaying individual transactions and daily balances.
 - ☁️ **Offline-First & Bidirectional Cloud Synchronization**:
-  - High-performance local storage engine ensuring immediate read/write responsiveness offline;
+  - High-performance MMKV storage engine ensuring immediate read/write responsiveness offline;
   - Backed by a Spring Boot cloud API, performing sub-second incremental pulls based on `server_updated_at` timestamps;
   - Built-in **LWW (Last-Write-Wins)** conflict resolution and **Tombstone Soft-Delete** mechanics to prevent resurrected records across devices.
 - 🔐 **Comprehensive Authentication Suite & Immersive User Center**:
@@ -68,12 +91,12 @@ The app natively supports seamless bidirectional incremental synchronization wit
 sequenceDiagram
     autonumber
     actor User as User (Mobile Client)
-    participant Client as BookKeep Client (Storage)
+    participant Client as BookKeep Client (Redux + MMKV)
     participant Server as Spring Boot API (/bookkeep/sync)
     participant DB as MySQL Database
 
     User->>Client: Add / Edit / Delete (mark isDeleted)
-    Client->>Client: Store changes locally (synced = false)
+    Client->>Client: Redux Dispatch -> MMKV persist (synced = false)
     Note over Client: Trigger incremental sync (passes lastSyncTime)
     Client->>Server: POST /bookkeep/sync { unsyncedItems, lastSyncTime }
     Server->>DB: UPSERT unsynced items (LWW resolution via clientUpdatedAt)
@@ -81,7 +104,7 @@ sequenceDiagram
     DB-->>Server: Return updated entity set
     Server-->>Client: Return { serverTime, items, uploadedCount, pulledCount }
     Client->>Client: Merge remote items and hide deleted records
-    Client->>Client: Update local lastSyncTime = serverTime, markSynced()
+    Client->>Client: Update Redux + local lastSyncTime = serverTime, markSynced()
     Client-->>User: Synchronization complete, UI updates reactively
 ```
 
@@ -92,9 +115,12 @@ sequenceDiagram
 ### Client Side
 - **Framework**: [React Native 0.87.1](https://reactnative.dev)
 - **Runtime**: React 19
-- **Language**: [TypeScript 5.x](https://www.typescriptlang.org)
-- **Layout & Safe Area**: `react-native-safe-area-context`
-- **Linting & Testing**: ESLint, Prettier, Jest
+- **State Management**: [@reduxjs/toolkit 2.x](https://redux-toolkit.js.org) + [react-redux 9.x](https://react-redux.js.org)
+- **Routing & Navigation**: [@react-navigation/native 7.x](https://reactnavigation.org) + Bottom Tabs + Native Stack
+- **Local Persistence**: [react-native-mmkv 4.x](https://github.com/mrousavy/react-native-mmkv)
+- **Safe Area**: `react-native-safe-area-context 5.x`
+- **Native Screens**: `react-native-screens 4.x`
+- **Code Standards & Testing**: TypeScript 5.x / ESLint / Prettier / Jest
 
 ### Server Side
 - **Architecture**: Java 21 / [Spring Boot 3.x](https://spring.io/projects/spring-boot)
@@ -109,43 +135,55 @@ sequenceDiagram
 BookKeep/
 ├── android/                 # Android native project (App Name: 三金记账, multi-density icons)
 ├── ios/                     # iOS native project & Podfile (Display Name: 三金记账, AppIcon)
-├── docs/image/logo.png      # Original App Logo asset
+├── assets/                  # Static assets directory (logo.png)
+├── docs/image/              # Documentation assets (logo.png, screen.png)
+├── __tests__/               # Jest automated test suites
+│   ├── App.test.tsx         # Root component mount & navigation rendering test
+│   └── bookkeepSlice.test.ts# Redux slice business logic unit tests
 ├── src/
-│   ├── app/
-│   │   └── App.tsx          # Main entry screen & state coordination
-│   ├── assets/              # Static icon assets (logo.png)
-│   ├── components/          # Core reusable UI components
-│   │   ├── AddTransactionModal.tsx  # Add / Edit transaction modal
-│   │   ├── AuthModal.tsx            # Login, Phone SMS & Email registration modal
-│   │   ├── CloudSyncModal.tsx       # Cloud sync dashboard & user center
-│   │   ├── HeaderCard.tsx           # 1/4 Screen Height Header (AppBar / Date-Income-Expense / Filter)
-│   │   ├── MineView.tsx             # Bottom "Mine" user center & backup view
-│   │   ├── StatisticsView.tsx       # Analytics & category breakdown view
-│   │   └── TransactionItem.tsx      # Individual transaction row component
-│   ├── constants/           # Transaction category definitions
-│   ├── services/            # Service layer
-│   │   ├── authService.ts   # Authentication service (login/register/sms/logoff)
-│   │   ├── cloudSync.ts     # Bidirectional cloud sync service
-│   │   └── storage.ts       # Local storage engine & subscriber events
-│   ├── theme/               # Design tokens (Colors, Shadows, Constants)
-│   ├── type/                # TypeScript type & interface definitions
-│   └── utils/               # Date formatting & money calculation helpers
-├── App.tsx                  # Root component (SafeAreaProvider wrapper)
-├── index.js                 # React Native bootstrap file
-├── screen.png               # Application screenshot preview
+│   ├── app/                 # Application root entry
+│   │   └── App.tsx          # Sole application root component (Redux Provider, Safe Area, NavigationContainer, GlobalModals)
+│   ├── navigation/          # Navigation layer
+│   │   ├── RootNavigator.tsx# React Navigation 7 bottom tab navigator with custom floating add button
+│   │   └── types.ts         # Navigation ParamList route type definitions
+│   ├── stores/              # Redux central store
+│   │   ├── hooks.ts         # useAppDispatch & useAppSelector typed hooks
+│   │   ├── index.ts         # configureStore global store setup
+│   │   └── slices/          # Business state slices (bookkeepSlice, authSlice, syncSlice)
+│   ├── features/            # Feature-First business modules
+│   │   ├── bookkeep/        # Core bookkeeping module
+│   │   │   ├── components/  # HeaderCard, TransactionItem, AddTransactionModal, StatisticsView
+│   │   │   ├── screens/     # BillsScreen (Bills flow & charts)
+│   │   │   └── services/    # cloudSync.ts (Bidirectional cloud sync)
+│   │   ├── auth/            # Authentication module
+│   │   │   ├── components/  # AuthModal (Login & verification code modal)
+│   │   │   └── services/    # authService.ts (Login/register/SMS/logout API)
+│   │   └── mine/            # User center module
+│   │       ├── components/  # CloudSyncModal (Cloud sync configuration modal)
+│   │       └── screens/     # MineScreen (Profile, sync status, backup & settings)
+│   ├── shared/              # Shared infrastructure layer
+│   │   ├── constants/       # categories.ts (Category metadata)
+│   │   ├── storage/         # mmkvStorage.ts (MMKV ultra-fast storage engine)
+│   │   ├── theme/           # colors.ts (Sky Blue theme palette)
+│   │   ├── types/           # bookkeep.ts (Unified TypeScript definitions)
+│   │   └── utils/           # format.ts (Currency, calendar groups, monthly summary helpers)
+│   └── services/            # Backward compatibility exports (storage.ts, cloudSync.ts, authService.ts)
+├── index.js                 # React Native bootstrap file (registers ./src/app/App)
+├── jest.config.js           # Jest configuration
+├── jest.setup.js            # Jest runtime mocks (MMKV, Screens, Safe Area)
 └── package.json             # Dependencies and scripts
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### 1. Prerequisites
-Make sure your development machine has:
+Ensure the following development tools are installed:
 - **Node.js** >= 22.11.0
 - **JDK** >= 17 (JDK 21 recommended)
-- **Android Studio** & Android SDK (with `ANDROID_HOME` configured)
-- (Optional) macOS + Xcode (for iOS builds)
+- **Android Studio** & Android SDK (with configured `ANDROID_HOME`)
+- (Optional) macOS + Xcode (for running iOS version)
 
 ### 2. Clone & Install Dependencies
 
@@ -154,25 +192,25 @@ Make sure your development machine has:
 git clone https://github.com/Akiha678/BookKeep.git
 cd BookKeep
 
-# Install frontend dependencies
+# Install dependencies
 npm install
 ```
 
 ### 3. Server Configuration
-By default, the client points to the LAN backend at `http://10.10.1.9:8080`.
-- If running on the standard **Android Emulator**, the host machine is accessible at `http://10.0.2.2:8080`;
-- If testing on a **physical device**, ensure your device and host share the same local Wi-Fi, and configure the IP in **Cloud Sync Center -> Endpoint Configuration**.
+The default sync URL points to local LAN (`http://10.10.1.9:8080`). For local emulator testing:
+- Android official emulator host loopback address: `http://10.0.2.2:8080`;
+- For physical device debugging, connect both device and computer to the same Wi-Fi and configure the IP in **Mine > Advanced Server Configuration**.
 
-### 4. Run the Application
+### 4. Run Application
 
 ```bash
 # Start Metro bundler
 npm start
 
-# Run on connected Android device / emulator
+# Run Android (separate terminal)
 npm run android
 
-# Run on iOS simulator (macOS only)
+# Run iOS (macOS only)
 npm run ios
 ```
 
@@ -180,39 +218,41 @@ npm run ios
 
 ## 💻 Available Scripts
 
-| Script | Description |
+| Command | Description |
 | :--- | :--- |
-| `npm start` | Starts the Metro bundler server |
-| `npm run android` | Builds and deploys the Android debug APK |
-| `npm run ios` | Builds and launches the iOS app on simulator |
-| `npm run lint` | Runs ESLint static analysis checks |
-| `npm test` | Executes Jest unit test suites |
+| `npm start` | Starts Metro Bundler incremental server |
+| `npm run android` | Compiles and installs Android Debug app |
+| `npm run ios` | Compiles and launches iOS app in Simulator |
+| `npm run lint` | Runs ESLint static analysis (0 errors) |
+| `npm test` | Runs Jest automated unit tests (All passing) |
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Complete offline expense tracking & monthly analytics
-- [x] Bidirectional cloud synchronization with Spring Boot & MySQL
-- [x] Multi-mode authentication: Password, Phone SMS, and Email registration
-- [x] Standardized JSON backup export & restore
-- [ ] Monthly budgeting limits & overspending alerts
-- [ ] Multi-ledger support & shared family bookkeeping
-- [ ] Extended data export formats (CSV / Excel reports)
+- [x] Full architectural reconstruction with Redux Toolkit, React Navigation 7, and react-native-mmkv
+- [x] Offline-first expense tracking and categorized analytics
+- [x] Bidirectional cloud sync with Spring Boot backend
+- [x] Multi-method authentication (Password, SMS OTP, Email verification)
+- [x] Standardized JSON backup export and merge restoration
+- [ ] Budget limit alerts and monthly expenditure goals
+- [ ] Multiple custom ledgers and family/couple shared accounts
+- [ ] Export to spreadsheet formats (Excel / CSV)
 
 ---
 
 ## 🤝 Contributing
 
-Contributions, feature suggestions, and bug reports are welcome!
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feat/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'feat: Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feat/AmazingFeature`)
+Contributions, issues, and feature requests are welcome!
+1. Fork this repository
+2. Create your feature branch (`git checkout -b feat/your-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feat/your-feature`)
 5. Open a Pull Request
 
 ---
 
 ## 📄 License
 
-Distributed under the [MIT License](./LICENSE). See `LICENSE` for more information.
+This project is licensed under the [MIT License](./LICENSE).
+Feel free to learn, use, and build upon it!

@@ -12,78 +12,58 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { Colors } from '../theme/colors';
-import { SyncStatus, UserInfo } from '../type/bookkeep';
-import { storage } from '../services/storage';
-import { cloudSync } from '../services/cloudSync';
-import { authService } from '../services/authService';
-import { AuthModal } from './AuthModal';
+import { Colors } from '../../../shared/theme/colors';
+import { useAppDispatch, useAppSelector } from '../../../stores/hooks';
+import { setAutoSync, setServerUrl } from '../../../stores/slices/syncSlice';
+import { setTransactions } from '../../../stores/slices/bookkeepSlice';
+import { setAuthModalVisible } from '../../../stores/slices/authSlice';
+import { authService } from '../../auth/services/authService';
+import { mmkvStorage } from '../../../shared/storage/mmkvStorage';
 
 interface CloudSyncModalProps {
   visible: boolean;
   onClose: () => void;
-  syncStatus: SyncStatus;
   onTriggerSync: () => void;
-  onOpenAuth?: () => void;
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   visible,
   onClose,
-  syncStatus,
   onTriggerSync,
 }) => {
-  const [config, setConfig] = useState(storage.getSyncConfig());
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(storage.getUser());
-  const [autoSync, setAutoSync] = useState(config.autoSync);
-  const [serverUrl, setServerUrl] = useState(config.serverUrl);
+  const dispatch = useAppDispatch();
+  const { currentUser } = useAppSelector(state => state.auth);
+  const { syncStatus, autoSync, serverUrl, lastSyncTime, lastError } = useAppSelector(
+    state => state.sync
+  );
+  const transactions = useAppSelector(state => state.bookkeep.transactions);
 
-  // 内部嵌套唤起登录注册弹窗
-  const [authModalVisible, setAuthModalVisible] = useState(false);
-
-  // 高级配置折叠状态
+  const [localServerUrl, setLocalServerUrl] = useState(serverUrl);
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  // 备份与恢复
   const [backupJson, setBackupJson] = useState('');
   const [showJsonInput, setShowJsonInput] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      const latest = storage.getSyncConfig();
-      setConfig(latest);
-      setCurrentUser(storage.getUser());
-      setAutoSync(latest.autoSync);
-      setServerUrl(latest.serverUrl);
+      setLocalServerUrl(serverUrl);
     }
-  }, [visible]);
+  }, [visible, serverUrl]);
 
-  useEffect(() => {
-    const unsub = storage.subscribeUser(user => {
-      setCurrentUser(user);
-      setConfig(storage.getSyncConfig());
-    });
-    return unsub;
-  }, []);
+  const validTransactions = transactions.filter(t => !t.isDeleted);
+  const localCount = validTransactions.length;
+  const unsyncedCount = transactions.filter(t => !t.synced).length;
 
-  const localCount = storage.getTransactions().length;
-  const unsyncedCount = storage.getUnsyncedTransactions().length;
-  const lastError = cloudSync.getLastError();
-
-  const lastSyncDateStr = config.lastSyncTime && config.lastSyncTime > 0
-    ? new Date(config.lastSyncTime).toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-    : '尚未同步';
+  const lastSyncDateStr =
+    lastSyncTime && lastSyncTime > 0
+      ? new Date(lastSyncTime).toLocaleTimeString('zh-CN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      : '尚未同步';
 
   const handleSaveAdvancedConfig = () => {
-    storage.updateSyncConfig({
-      autoSync,
-      serverUrl: serverUrl.trim(),
-    });
-    setConfig(storage.getSyncConfig());
+    dispatch(setServerUrl(localServerUrl.trim()));
     Alert.alert('设置成功', '服务端接口地址已更新');
   };
 
@@ -102,13 +82,10 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
   };
 
   const handleExport = () => {
-    const jsonStr = storage.exportDataJson();
+    const jsonStr = mmkvStorage.exportDataJson();
     setBackupJson(jsonStr);
     setShowJsonInput(true);
-    Alert.alert(
-      '备份导出成功',
-      `共导出 ${localCount} 笔记账记录。\n已填入下方文本框中，可直接复制备份。`
-    );
+    Alert.alert('备份导出成功', `共导出 ${localCount} 笔记账记录。\n已填入下方文本框中，可直接复制备份。`);
   };
 
   const handleImport = () => {
@@ -116,8 +93,9 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
       Alert.alert('提示', '请输入备份的 JSON 字符串');
       return;
     }
-    const result = storage.importDataJson(backupJson.trim());
+    const result = mmkvStorage.importDataJson(backupJson.trim());
     if (result.success) {
+      dispatch(setTransactions(mmkvStorage.getTransactions()));
       Alert.alert('恢复成功', `成功从备份恢复/合并 ${result.count} 笔记账记录！`);
       setBackupJson('');
       setShowJsonInput(false);
@@ -133,7 +111,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
         text: '确定清空',
         style: 'destructive',
         onPress: () => {
-          storage.clearAllData();
+          mmkvStorage.clearAllData();
+          dispatch(setTransactions([]));
           Alert.alert('已清空', '本地记账数据已全部清空');
         },
       },
@@ -150,7 +129,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           <View style={styles.headerRow}>
             <View style={styles.titleWithIcon}>
               <Image
-                source={require('../assets/logo.png')}
+                source={require('../../../../assets/logo.png')}
                 style={styles.headerLogo}
                 resizeMode="cover"
               />
@@ -200,7 +179,10 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 </View>
                 <TouchableOpacity
                   style={styles.guestLoginBtn}
-                  onPress={() => setAuthModalVisible(true)}
+                  onPress={() => {
+                    onClose();
+                    dispatch(setAuthModalVisible(true));
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.guestLoginBtnText}>立即登录 / 注册账号</Text>
@@ -208,7 +190,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               </View>
             )}
 
-            {/* 2. 同步状态概览看板 */}
+            {/* 2. 同步状态看板 */}
             <View style={styles.statusCard}>
               <View style={styles.statusHeaderRow}>
                 <Text style={styles.statusCardTitle}>云端同步状态</Text>
@@ -281,7 +263,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 ]}
                 onPress={() => {
                   if (!currentUser) {
-                    setAuthModalVisible(true);
+                    onClose();
+                    dispatch(setAuthModalVisible(true));
                   } else {
                     onTriggerSync();
                   }
@@ -314,8 +297,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                 <Switch
                   value={autoSync}
                   onValueChange={val => {
-                    setAutoSync(val);
-                    storage.updateSyncConfig({ autoSync: val });
+                    dispatch(setAutoSync(val));
                   }}
                   thumbColor={autoSync ? Colors.primary : '#F1F5F9'}
                   trackColor={{ false: '#E2E8F0', true: Colors.primaryLight }}
@@ -323,7 +305,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               </View>
             </View>
 
-            {/* 4. 高级网络设置 (可展开) */}
+            {/* 4. 高级网络设置 (展开) */}
             <View style={styles.sectionCard}>
               <TouchableOpacity
                 style={styles.expandRow}
@@ -336,12 +318,12 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
 
               {showAdvanced && (
                 <View style={styles.urlInputBlock}>
-                  <Text style={styles.inputLabel}>服务端增量同步接口 (默认 10.10.1.9:8080)</Text>
+                  <Text style={styles.inputLabel}>服务端增量同步接口 Base URL</Text>
                   <TextInput
                     style={styles.urlInput}
-                    value={serverUrl}
-                    onChangeText={setServerUrl}
-                    placeholder="http://10.10.1.9:8080/bookkeep/sync"
+                    value={localServerUrl}
+                    onChangeText={setLocalServerUrl}
+                    placeholder="http://10.10.1.9:8080"
                     placeholderTextColor="#94A3B8"
                     autoCapitalize="none"
                   />
@@ -352,7 +334,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               )}
             </View>
 
-            {/* 5. 数据本地备份与恢复 */}
+            {/* 5. 数据备份与恢复 */}
             <View style={styles.sectionCard}>
               <Text style={styles.sectionHeader}>数据备份与重置</Text>
               <View style={styles.actionRow}>
@@ -396,16 +378,6 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
           </ScrollView>
         </View>
       </View>
-
-      {/* 嵌入的登录/注册模态框 */}
-      <AuthModal
-        visible={authModalVisible}
-        onClose={() => setAuthModalVisible(false)}
-        onSuccess={() => {
-          setAuthModalVisible(false);
-          setCurrentUser(storage.getUser());
-        }}
-      />
     </Modal>
   );
 };
@@ -446,10 +418,6 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    marginRight: 8,
-  },
-  titleIcon: {
-    fontSize: 22,
     marginRight: 8,
   },
   headerTitle: {
@@ -692,6 +660,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  spinnerSpacing: {
+    marginRight: 6,
+  },
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -800,7 +771,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   jsonInputContainer: {
-    marginTop: 8,
     marginBottom: 10,
   },
   jsonInput: {
@@ -811,33 +781,33 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 12,
     color: Colors.textPrimary,
-    minHeight: 80,
+    height: 80,
     textAlignVertical: 'top',
   },
   confirmImportBtn: {
-    backgroundColor: Colors.skyCyan,
-    borderRadius: 10,
-    paddingVertical: 9,
+    backgroundColor: Colors.primary,
+    paddingVertical: 8,
+    borderRadius: 8,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   confirmImportText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   resetBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: 'center',
-    paddingVertical: 8,
-    marginTop: 4,
   },
   resetBtnText: {
-    fontSize: 12,
     color: Colors.danger,
-    fontWeight: '500',
-  },
-  spinnerSpacing: {
-    marginRight: 8,
+    fontSize: 12,
+    fontWeight: '600',
   },
   bottomSpacer: {
     height: 30,

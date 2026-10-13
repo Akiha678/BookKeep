@@ -13,9 +13,9 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { Colors } from '../../../shared/theme/colors';
 import { authService } from '../services/authService';
-import { cloudSync } from '../services/cloudSync';
+import { cloudSync } from '../../bookkeep/services/cloudSync';
 
 interface AuthModalProps {
   visible: boolean;
@@ -199,7 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <View style={styles.headerRow}>
             <View style={styles.titleWithIcon}>
               <Image
-                source={require('../assets/logo.png')}
+                source={require('../../../../assets/logo.png')}
                 style={styles.headerLogo}
                 resizeMode="cover"
               />
@@ -461,10 +461,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginRight: 8,
   },
-  titleIcon: {
-    fontSize: 22,
-    marginRight: 8,
-  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -554,10 +550,10 @@ const styles = StyleSheet.create({
   codeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
   },
   codeInput: {
     flex: 1,
+    marginRight: 10,
   },
   sendCodeBtn: {
     backgroundColor: Colors.primaryLight,

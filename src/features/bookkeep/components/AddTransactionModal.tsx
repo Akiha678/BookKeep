@@ -15,16 +15,16 @@ import {
   Transaction,
   TransactionType,
   CategoryName,
-} from '../type/bookkeep';
+} from '../../../shared/types/bookkeep';
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
-} from '../constants/categories';
-import { Colors } from '../theme/colors';
+} from '../../../shared/constants/categories';
+import { Colors } from '../../../shared/theme/colors';
 import {
   getTodayDateStr,
   getCurrentTimeStr,
-} from '../utils/format';
+} from '../../../shared/utils/format';
 
 interface AddTransactionModalProps {
   visible: boolean;

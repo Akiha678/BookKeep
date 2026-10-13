@@ -1,4 +1,4 @@
-import { Transaction, DayGroup, MonthlySummary, CategoryStat } from '../type/bookkeep';
+import { Transaction, DayGroup, MonthlySummary, CategoryStat } from '../types/bookkeep';
 import { getCategoryMeta } from '../constants/categories';
 
 /**

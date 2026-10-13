@@ -6,13 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { Transaction, TransactionType } from '../type/bookkeep';
-import { Colors } from '../theme/colors';
+import { Transaction, TransactionType } from '../../../shared/types/bookkeep';
+import { Colors } from '../../../shared/theme/colors';
 import {
   calculateCategoryStats,
   calculateMonthlySummary,
   formatMoney,
-} from '../utils/format';
+} from '../../../shared/utils/format';
 
 interface StatisticsViewProps {
   currentMonth: string;
@@ -34,16 +34,18 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   const [yearStr, monthStr] = currentMonth.split('-');
   const displayMonth = `${yearStr}年${parseInt(monthStr, 10)}月`;
 
-  const summary = calculateMonthlySummary(transactions, currentMonth);
-  const stats = calculateCategoryStats(transactions, currentMonth, activeType);
+  const validTransactions = transactions.filter(t => !t.isDeleted);
+  const summary = calculateMonthlySummary(validTransactions, currentMonth);
+  const stats = calculateCategoryStats(validTransactions, currentMonth, activeType);
 
   // 计算最大单笔
-  const monthlyFiltered = transactions.filter(
+  const monthlyFiltered = validTransactions.filter(
     t => t.date.startsWith(currentMonth) && t.type === activeType
   );
-  const maxItem = monthlyFiltered.length > 0
-    ? monthlyFiltered.reduce((prev, cur) => (cur.amount > prev.amount ? cur : prev))
-    : null;
+  const maxItem =
+    monthlyFiltered.length > 0
+      ? monthlyFiltered.reduce((prev, cur) => (cur.amount > prev.amount ? cur : prev))
+      : null;
 
   const totalAmount = activeType === 'expense' ? summary.totalExpense : summary.totalIncome;
 

@@ -13,55 +13,57 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Colors } from '../theme/colors';
-import { SyncStatus, UserInfo } from '../type/bookkeep';
-import { storage } from '../services/storage';
-import { cloudSync } from '../services/cloudSync';
-import { authService } from '../services/authService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Colors } from '../../../shared/theme/colors';
+import { useAppDispatch, useAppSelector } from '../../../stores/hooks';
+import { setAutoSync, setServerUrl } from '../../../stores/slices/syncSlice';
+import { setTransactions } from '../../../stores/slices/bookkeepSlice';
+import { authService } from '../../auth/services/authService';
+import { cloudSync } from '../../bookkeep/services/cloudSync';
+import { mmkvStorage } from '../../../shared/storage/mmkvStorage';
 
-interface MineViewProps {
-  currentUser: UserInfo | null;
-  syncStatus: SyncStatus;
-  onOpenAuth: () => void;
-  onTriggerSync: () => void;
-}
+export const MineScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
+  const dispatch = useAppDispatch();
 
-export const MineView: React.FC<MineViewProps> = ({
-  currentUser,
-  syncStatus,
-  onTriggerSync,
-}) => {
-  // 配置与高级设置
-  const [config, setConfig] = useState(storage.getSyncConfig());
-  const [autoSync, setAutoSync] = useState(config.autoSync);
-  const [serverUrl, setServerUrl] = useState(config.serverUrl);
+  const { currentUser } = useAppSelector(state => state.auth);
+  const { syncStatus, autoSync, serverUrl, lastSyncTime, lastError } = useAppSelector(
+    state => state.sync
+  );
+  const transactions = useAppSelector(state => state.bookkeep.transactions);
+
+  // 本地配置折叠与备份状态
+  const [localServerUrl, setLocalServerUrl] = useState(serverUrl);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [backupJson, setBackupJson] = useState('');
   const [showJsonInput, setShowJsonInput] = useState(false);
 
   // ── 未登录认证表单状态 ──
-  // 默认停留在用户指定的「邮箱注册」界面
   const [authTab, setAuthTab] = useState<'emailRegister' | 'accountLogin' | 'phoneLogin'>('emailRegister');
   const [loading, setLoading] = useState(false);
 
-  // 1. 邮箱注册表单字段
+  // 1. 邮箱注册
   const [regEmail, setRegEmail] = useState('');
   const [regCode, setRegCode] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [emailCountdown, setEmailCountdown] = useState(0);
 
-  // 2. 账号密码登录表单字段
+  // 2. 账号密码登录
   const [loginAccount, setLoginAccount] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // 3. 手机快捷登录表单字段
+  // 3. 手机快捷登录
   const [phone, setPhone] = useState('');
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneCountdown, setPhoneCountdown] = useState(0);
 
-  // 倒计时计时器
+  useEffect(() => {
+    setLocalServerUrl(serverUrl);
+  }, [serverUrl]);
+
+  // 倒计时
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     if (emailCountdown > 0) {
@@ -78,29 +80,20 @@ export const MineView: React.FC<MineViewProps> = ({
     return () => clearTimeout(timer);
   }, [phoneCountdown]);
 
-  useEffect(() => {
-    const latest = storage.getSyncConfig();
-    setConfig(latest);
-    setAutoSync(latest.autoSync);
-    setServerUrl(latest.serverUrl);
-  }, [currentUser]);
-
-  const localCount = storage.getTransactions().length;
-  const unsyncedCount = storage.getUnsyncedTransactions().length;
-  const lastError = cloudSync.getLastError();
+  const validTransactions = transactions.filter(t => !t.isDeleted);
+  const localCount = validTransactions.length;
+  const unsyncedCount = transactions.filter(t => !t.synced).length;
 
   const lastSyncDateStr =
-    config.lastSyncTime && config.lastSyncTime > 0
-      ? new Date(config.lastSyncTime).toLocaleTimeString('zh-CN', {
+    lastSyncTime && lastSyncTime > 0
+      ? new Date(lastSyncTime).toLocaleTimeString('zh-CN', {
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
         })
       : '尚未同步';
 
-  // ── 认证处理函数 ──
-
-  // 发送邮箱注册验证码
+  // ── 认证业务函数 ──
   const handleSendEmailCode = async () => {
     if (!regEmail.trim() || !regEmail.includes('@')) {
       Alert.alert('提示', '请输入合法的邮箱地址');
@@ -114,7 +107,7 @@ export const MineView: React.FC<MineViewProps> = ({
       setEmailCountdown(60);
       if (res.data && String(res.data).length === 4) {
         setRegCode(String(res.data));
-        Alert.alert('验证码提示', `开发测试环境验证码：${res.data}（已为您自动填入）`);
+        Alert.alert('验证码提示', `测试环境验证码：${res.data}（已自动填入）`);
       } else {
         Alert.alert('提示', '验证码已发送至您的邮箱，请前往查收并在 5 分钟内使用');
       }
@@ -123,7 +116,6 @@ export const MineView: React.FC<MineViewProps> = ({
     }
   };
 
-  // 提交邮箱注册
   const handleEmailRegister = async () => {
     if (!regEmail.trim() || !regEmail.includes('@')) {
       Alert.alert('提示', '请输入有效的邮箱地址');
@@ -149,7 +141,6 @@ export const MineView: React.FC<MineViewProps> = ({
     }
   };
 
-  // 账号密码登录
   const handleAccountLogin = async () => {
     if (!loginAccount.trim()) {
       Alert.alert('提示', '请输入登录账号或邮箱');
@@ -171,7 +162,6 @@ export const MineView: React.FC<MineViewProps> = ({
     }
   };
 
-  // 发送手机短信验证码
   const handleSendPhoneCode = async () => {
     if (!phone.trim()) {
       Alert.alert('提示', '请输入手机号');
@@ -194,7 +184,6 @@ export const MineView: React.FC<MineViewProps> = ({
     }
   };
 
-  // 手机快捷登录
   const handlePhoneLogin = async () => {
     if (!phone.trim() || !phoneCode.trim()) {
       Alert.alert('提示', '请输入手机号及 4 位验证码');
@@ -212,14 +201,17 @@ export const MineView: React.FC<MineViewProps> = ({
     }
   };
 
-  // ── 已登录管理处理函数 ──
+  const handleTriggerSync = async () => {
+    const res = await cloudSync.syncWithCloud();
+    if (res.success) {
+      Alert.alert('同步完成', `本次同步拉取 ${res.pulledCount} 条，推送 ${res.syncedCount} 条`);
+    } else {
+      Alert.alert('同步失败', res.message || '网络连接或服务端异常');
+    }
+  };
 
   const handleSaveAdvancedConfig = () => {
-    storage.updateSyncConfig({
-      autoSync,
-      serverUrl: serverUrl.trim(),
-    });
-    setConfig(storage.getSyncConfig());
+    dispatch(setServerUrl(localServerUrl.trim()));
     Alert.alert('设置成功', '服务端接口地址已更新');
   };
 
@@ -238,13 +230,10 @@ export const MineView: React.FC<MineViewProps> = ({
   };
 
   const handleExport = () => {
-    const jsonStr = storage.exportDataJson();
+    const jsonStr = mmkvStorage.exportDataJson();
     setBackupJson(jsonStr);
     setShowJsonInput(true);
-    Alert.alert(
-      '备份导出成功',
-      `共导出 ${localCount} 笔记账记录。\n已填入下方文本框中，可直接复制备份。`
-    );
+    Alert.alert('备份导出成功', `共导出 ${localCount} 笔记账记录。\n已填入下方文本框中，可直接复制备份。`);
   };
 
   const handleImport = () => {
@@ -252,8 +241,9 @@ export const MineView: React.FC<MineViewProps> = ({
       Alert.alert('提示', '请输入备份的 JSON 字符串');
       return;
     }
-    const result = storage.importDataJson(backupJson.trim());
+    const result = mmkvStorage.importDataJson(backupJson.trim());
     if (result.success) {
+      dispatch(setTransactions(mmkvStorage.getTransactions()));
       Alert.alert('恢复成功', `成功从备份恢复/合并 ${result.count} 笔记账记录！`);
       setBackupJson('');
       setShowJsonInput(false);
@@ -269,7 +259,8 @@ export const MineView: React.FC<MineViewProps> = ({
         text: '确定清空',
         style: 'destructive',
         onPress: () => {
-          storage.clearAllData();
+          mmkvStorage.clearAllData();
+          dispatch(setTransactions([]));
           Alert.alert('已清空', '本地记账数据已全部清空');
         },
       },
@@ -277,12 +268,12 @@ export const MineView: React.FC<MineViewProps> = ({
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  // 渲染：未登录状态 ── 主流现代风格注册 / 登录 UI
+  // 1. 未登录渲染
   // ═════════════════════════════════════════════════════════════════════
   if (!currentUser) {
     return (
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, { paddingTop: insets.top }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
@@ -291,11 +282,11 @@ export const MineView: React.FC<MineViewProps> = ({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 1. 顶部品牌 Branding 区域 */}
+          {/* 品牌 Branding 区域 */}
           <View style={styles.authBrandSection}>
             <View style={styles.authLogoWrap}>
               <Image
-                source={require('../assets/logo.png')}
+                source={require('../../../../assets/logo.png')}
                 style={styles.authLogoImg}
                 resizeMode="cover"
               />
@@ -304,7 +295,7 @@ export const MineView: React.FC<MineViewProps> = ({
             <Text style={styles.authBrandSlogan}>纯粹记账 · 开启云端多设备实时同步</Text>
           </View>
 
-          {/* 2. 主流风格 Segmented 切换胶囊栏 */}
+          {/* Segmented 切换胶囊栏 */}
           <View style={styles.authSegmentBar}>
             <TouchableOpacity
               style={[styles.authSegmentItem, authTab === 'emailRegister' && styles.authSegmentItemActive]}
@@ -337,9 +328,8 @@ export const MineView: React.FC<MineViewProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* 3. 核心表单主卡片 */}
+          {/* 表单主卡片 */}
           <View style={styles.authFormCard}>
-            {/* ───── TAB 1: 邮箱注册 (默认首选) ───── */}
             {authTab === 'emailRegister' && (
               <View>
                 <View style={styles.authTipBanner}>
@@ -348,7 +338,6 @@ export const MineView: React.FC<MineViewProps> = ({
                   </Text>
                 </View>
 
-                {/* 邮箱输入 */}
                 <Text style={styles.fieldLabel}>电子邮箱</Text>
                 <View style={styles.inputBox}>
                   <Text style={styles.inputPrefixIcon}>📧</Text>
@@ -356,14 +345,13 @@ export const MineView: React.FC<MineViewProps> = ({
                     style={styles.inputField}
                     value={regEmail}
                     onChangeText={setRegEmail}
-                    placeholder="请输入常用邮箱地址 (如 user@example.com)"
+                    placeholder="请输入常用邮箱地址"
                     placeholderTextColor="#94A3B8"
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
                 </View>
 
-                {/* 验证码输入 */}
                 <Text style={styles.fieldLabel}>邮箱验证码</Text>
                 <View style={styles.codeRowBox}>
                   <View style={[styles.inputBox, styles.codeInputFlex]}>
@@ -393,7 +381,6 @@ export const MineView: React.FC<MineViewProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {/* 密码输入 */}
                 <Text style={styles.fieldLabel}>设置登录密码</Text>
                 <View style={styles.inputBox}>
                   <Text style={styles.inputPrefixIcon}>🔒</Text>
@@ -413,7 +400,6 @@ export const MineView: React.FC<MineViewProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {/* 提交注册大按钮 */}
                 <TouchableOpacity
                   style={[styles.authSubmitBtn, loading && styles.authSubmitBtnDisabled]}
                   onPress={handleEmailRegister}
@@ -427,7 +413,6 @@ export const MineView: React.FC<MineViewProps> = ({
                   )}
                 </TouchableOpacity>
 
-                {/* 底部已有账号切换提示 */}
                 <TouchableOpacity
                   style={styles.switchAuthLink}
                   onPress={() => setAuthTab('accountLogin')}
@@ -439,7 +424,6 @@ export const MineView: React.FC<MineViewProps> = ({
               </View>
             )}
 
-            {/* ───── TAB 2: 账号密码登录 ───── */}
             {authTab === 'accountLogin' && (
               <View>
                 <View style={styles.authTipBanner}>
@@ -504,7 +488,6 @@ export const MineView: React.FC<MineViewProps> = ({
               </View>
             )}
 
-            {/* ───── TAB 3: 手机免密登录 ───── */}
             {authTab === 'phoneLogin' && (
               <View>
                 <View style={styles.authTipBanner}>
@@ -580,14 +563,14 @@ export const MineView: React.FC<MineViewProps> = ({
             )}
           </View>
 
-          {/* 4. 底部离线自由记账与协议说明 */}
+          {/* 底部离线提示与协议 */}
           <View style={styles.authBottomNoteSection}>
             <Text style={styles.agreementText}>
               注册即表示同意《用户服务协议》与《隐私政策》
             </Text>
             <View style={styles.offlineTipBox}>
               <Text style={styles.offlineTipText}>
-                💡 离线记账友好：未登录时所有账目均完整加密保存在本地；登录后将无缝开启云端实时自动同步。
+                💡 离线记账友好：未登录时所有账目均保存在本地 MMKV 高速存储中；登录后将无缝开启云端自动双向同步。
               </Text>
             </View>
           </View>
@@ -597,11 +580,11 @@ export const MineView: React.FC<MineViewProps> = ({
   }
 
   // ═════════════════════════════════════════════════════════════════════
-  // 渲染：已登录状态 ── 完整的个人中心与云同步管理面板
+  // 2. 已登录状态 ── 个人中心与云同步管理面板
   // ═════════════════════════════════════════════════════════════════════
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { paddingTop: insets.top }]}
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
     >
@@ -609,13 +592,13 @@ export const MineView: React.FC<MineViewProps> = ({
       <View style={styles.appBar}>
         <View style={styles.appBarLeft}>
           <Image
-            source={require('../assets/logo.png')}
+            source={require('../../../../assets/logo.png')}
             style={styles.logoIcon}
             resizeMode="cover"
           />
           <Text style={styles.appBarTitle}>个人中心</Text>
         </View>
-        <Text style={styles.appBarSub}>三金记账 v1.0.0</Text>
+        <Text style={styles.appBarSub}>三金记账 v2.0 (Redux+MMKV)</Text>
       </View>
 
       {/* 1. 用户账号身份卡片 */}
@@ -662,7 +645,9 @@ export const MineView: React.FC<MineViewProps> = ({
                 ? '正在同步...'
                 : syncStatus === 'success'
                 ? '增量同步就绪'
-                : '同步异常'}
+                : syncStatus === 'error'
+                ? '同步异常'
+                : '闲置就绪'}
             </Text>
           </View>
         </View>
@@ -702,7 +687,7 @@ export const MineView: React.FC<MineViewProps> = ({
             styles.syncNowBtn,
             syncStatus === 'syncing' && styles.syncNowBtnDisabled,
           ]}
-          onPress={onTriggerSync}
+          onPress={handleTriggerSync}
           disabled={syncStatus === 'syncing'}
           activeOpacity={0.8}
         >
@@ -724,8 +709,7 @@ export const MineView: React.FC<MineViewProps> = ({
           <Switch
             value={autoSync}
             onValueChange={val => {
-              setAutoSync(val);
-              storage.updateSyncConfig({ autoSync: val });
+              dispatch(setAutoSync(val));
             }}
             trackColor={{ false: '#CBD5E1', true: Colors.primary }}
           />
@@ -782,8 +766,8 @@ export const MineView: React.FC<MineViewProps> = ({
             <Text style={styles.inputLabel}>Spring Boot 服务端 Base URL</Text>
             <TextInput
               style={styles.textInput}
-              value={serverUrl}
-              onChangeText={setServerUrl}
+              value={localServerUrl}
+              onChangeText={setLocalServerUrl}
               placeholder="http://10.10.1.9:8080"
               placeholderTextColor="#94A3B8"
               autoCapitalize="none"
@@ -817,8 +801,8 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
+    paddingBottom: 40,
   },
-  // ── 未登录认证页专用样式 ──
   authScrollContent: {
     paddingHorizontal: 20,
     paddingTop: 24,
@@ -1036,8 +1020,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center',
   },
-
-  // ── 已登录状态原有样式 ──
   appBar: {
     flexDirection: 'row',
     alignItems: 'center',

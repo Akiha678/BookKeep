@@ -1,4 +1,4 @@
-import { CategoryItem, CategoryName } from '../type/bookkeep';
+import { CategoryItem, CategoryName } from '../types/bookkeep';
 
 export const EXPENSE_CATEGORIES: CategoryItem[] = [
   { id: 'exp_food', name: '餐饮', type: 'expense', icon: '🍜', color: '#FF7043', bgColor: '#FFF3E0' },

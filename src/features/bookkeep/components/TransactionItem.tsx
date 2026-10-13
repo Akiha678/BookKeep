@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { Transaction } from '../type/bookkeep';
-import { getCategoryMeta } from '../constants/categories';
-import { Colors } from '../theme/colors';
-import { formatMoney } from '../utils/format';
+import { Transaction } from '../../../shared/types/bookkeep';
+import { getCategoryMeta } from '../../../shared/constants/categories';
+import { Colors } from '../../../shared/theme/colors';
+import { formatMoney } from '../../../shared/utils/format';
 
 interface TransactionItemProps {
   item: Transaction;

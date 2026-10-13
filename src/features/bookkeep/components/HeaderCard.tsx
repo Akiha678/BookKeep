@@ -7,9 +7,9 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { Colors } from '../theme/colors';
-import { MonthlySummary, SyncStatus } from '../type/bookkeep';
-import { formatMoney } from '../utils/format';
+import { Colors } from '../../../shared/theme/colors';
+import { MonthlySummary, SyncStatus } from '../../../shared/types/bookkeep';
+import { formatMoney } from '../../../shared/utils/format';
 
 interface HeaderCardProps {
   currentMonth: string; // YYYY-MM
@@ -42,11 +42,9 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
   onMonthPrev,
   onMonthNext,
 }) => {
-  // 解析显示月份，例如 "2026年10月"
   const [yearStr, monthStr] = currentMonth.split('-');
   const displayMonth = `${yearStr}年${parseInt(monthStr, 10)}月`;
 
-  // 同步指示器状态文案与样式
   const getSyncBadge = () => {
     if (!isLoggedIn) {
       return { text: '登录', icon: '👤', color: '#FEF3C7', bg: 'rgba(245, 158, 11, 0.3)' };
@@ -74,7 +72,7 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
       <View style={styles.appBarRow}>
         <View style={styles.brandBox}>
           <Image
-            source={require('../assets/logo.png')}
+            source={require('../../../../assets/logo.png')}
             style={styles.brandLogo}
             resizeMode="cover"
           />
@@ -120,7 +118,6 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
 
       {/* 2. 第二行: 日期 收入 支出 (这三个为一行) */}
       <View style={styles.dataSummaryRow}>
-        {/* 日期选择器 */}
         <View style={styles.monthSelector}>
           <TouchableOpacity onPress={onMonthPrev} style={styles.arrowButton} activeOpacity={0.7}>
             <Text style={styles.arrowText}>‹</Text>
@@ -131,13 +128,11 @@ export const HeaderCard: React.FC<HeaderCardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 收入 */}
         <View style={styles.summaryItem}>
           <Text style={styles.summaryLabel}>收入</Text>
           <Text style={styles.summaryIncomeValue}>¥{formatMoney(summary.totalIncome)}</Text>
         </View>
 
-        {/* 支出 */}
         <View style={styles.summaryItem}>
           <Text style={styles.summaryLabel}>支出</Text>
           <Text style={styles.summaryExpenseValue}>¥{formatMoney(summary.totalExpense)}</Text>
@@ -194,7 +189,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  // 1. 第一行 AppBar
   appBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -260,7 +254,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  // 2. 第二行: 日期 收入 支出 (这三个为一行)
   dataSummaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -310,7 +303,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  // 3. 第三行: 全部明细 支出 收入 (这三个为一行)
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
