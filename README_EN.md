@@ -73,12 +73,13 @@ Designed with a clean, vibrant Sky Blue visual aesthetic, it natively supports s
   - High-performance MMKV storage engine ensuring immediate read/write responsiveness offline;
   - Backed by a Spring Boot cloud API, performing sub-second incremental pulls based on `server_updated_at` timestamps;
   - Built-in **LWW (Last-Write-Wins)** conflict resolution and **Tombstone Soft-Delete** mechanics to prevent resurrected records across devices.
-- 🔐 **Comprehensive Authentication Suite & Immersive User Center**:
-  - **Modern Embedded Auth UI**: Renders an elegant mainstream auth screen directly in the "Mine" tab when unauthenticated, featuring email registration by default;
-  - **Email Registration**: Sign up with 4-digit verification code and password;
-  - **Account/Email Login**: Sign in with username or email and password;
-  - **Passwordless Phone Login**: SMS code login with automatic account registration for new phone numbers;
-  - **Session Security**: Revoke active tokens and log out safely at any time.
+- 🔐 **Modern Minimalist Multi-Step Authentication & User Center**:
+  - **Sleek Minimalist Multi-Step UI (Modern Blackbox-Style)**: Pristine white aesthetic, prominent bold typography, and single-line underlined inputs replacing bulky forms;
+  - **Step 1 - Email Code Request Screen**: Defaults to "Verification Code Login" with single-line email input and dynamic "Get Verification Code" button; bottom-left switch to "Password Login", bottom-right "Account Recovery";
+  - **Step 2 - 4-Box Verification Code Screen**: Smooth transition upon code dispatch showing destination email; 4 individual square boxes with auto-focus, cursor tracking, and instant auto-submit upon entering 4 digits; includes 60s countdown resend button;
+  - **Password Login Mode**: Seamless toggle to "Password Login" with single-line email/account and password inputs (with eye visibility toggle), "Log In" action button, bottom-left "Code Login" toggle, and quick test admin autofill;
+  - **Compliance & Branding**: Integrated Apple / WeChat sign-in options, circular agreement checkbox ("Terms of Service" & "Privacy Policy"), and official BookKeep branding;
+  - **User Center Integration**: Unauthenticated state in the "Mine" tab gracefully displays offline bookkeep status with one-tap modal trigger, followed by automatic bidirectional cloud synchronization upon login.
 - 💾 **Data Portability & One-Click Backup**:
   - Export all transaction records to standardized JSON backup files;
   - Import and merge previous JSON backups effortlessly, putting data ownership entirely in your hands.

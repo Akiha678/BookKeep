@@ -10,12 +10,11 @@ import {
   Alert,
   ScrollView,
   Image,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../../shared/theme/colors';
 import { useAppDispatch, useAppSelector } from '../../../stores/hooks';
+import { setAuthModalVisible } from '../../../stores/slices/authSlice';
 import { setAutoSync, setServerUrl } from '../../../stores/slices/syncSlice';
 import { setTransactions } from '../../../stores/slices/bookkeepSlice';
 import { authService } from '../../auth/services/authService';
@@ -38,47 +37,9 @@ export const MineScreen: React.FC = () => {
   const [backupJson, setBackupJson] = useState('');
   const [showJsonInput, setShowJsonInput] = useState(false);
 
-  // ── 未登录认证表单状态 ──
-  const [authTab, setAuthTab] = useState<'emailRegister' | 'accountLogin' | 'phoneLogin'>('emailRegister');
-  const [loading, setLoading] = useState(false);
-
-  // 1. 邮箱注册
-  const [regEmail, setRegEmail] = useState('');
-  const [regCode, setRegCode] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [showRegPassword, setShowRegPassword] = useState(false);
-  const [emailCountdown, setEmailCountdown] = useState(0);
-
-  // 2. 账号密码登录
-  const [loginAccount, setLoginAccount] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-
-  // 3. 手机快捷登录
-  const [phone, setPhone] = useState('');
-  const [phoneCode, setPhoneCode] = useState('');
-  const [phoneCountdown, setPhoneCountdown] = useState(0);
-
   useEffect(() => {
     setLocalServerUrl(serverUrl);
   }, [serverUrl]);
-
-  // 倒计时
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (emailCountdown > 0) {
-      timer = setTimeout(() => setEmailCountdown(c => c - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [emailCountdown]);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (phoneCountdown > 0) {
-      timer = setTimeout(() => setPhoneCountdown(c => c - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [phoneCountdown]);
 
   const validTransactions = transactions.filter(t => !t.isDeleted);
   const localCount = validTransactions.length;
@@ -92,114 +53,6 @@ export const MineScreen: React.FC = () => {
           second: '2-digit',
         })
       : '尚未同步';
-
-  // ── 认证业务函数 ──
-  const handleSendEmailCode = async () => {
-    if (!regEmail.trim() || !regEmail.includes('@')) {
-      Alert.alert('提示', '请输入合法的邮箱地址');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.sendRegisterEmailCode(regEmail);
-    setLoading(false);
-
-    if (res.success) {
-      setEmailCountdown(60);
-      if (res.data && String(res.data).length === 4) {
-        setRegCode(String(res.data));
-        Alert.alert('验证码提示', `测试环境验证码：${res.data}（已自动填入）`);
-      } else {
-        Alert.alert('提示', '验证码已发送至您的邮箱，请前往查收并在 5 分钟内使用');
-      }
-    } else {
-      Alert.alert('发送失败', res.message);
-    }
-  };
-
-  const handleEmailRegister = async () => {
-    if (!regEmail.trim() || !regEmail.includes('@')) {
-      Alert.alert('提示', '请输入有效的邮箱地址');
-      return;
-    }
-    if (!regCode.trim() || regCode.trim().length !== 4) {
-      Alert.alert('提示', '请输入 4 位数字邮箱验证码');
-      return;
-    }
-    if (regPassword.length < 6) {
-      Alert.alert('提示', '密码长度至少需为 6 位');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.registerByEmail(regEmail, regCode, regPassword);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('注册成功', '恭喜注册成功，已自动登录并开启云端多设备实时同步！');
-      cloudSync.syncWithCloud();
-    } else {
-      Alert.alert('注册失败', res.message);
-    }
-  };
-
-  const handleAccountLogin = async () => {
-    if (!loginAccount.trim()) {
-      Alert.alert('提示', '请输入登录账号或邮箱');
-      return;
-    }
-    if (!loginPassword) {
-      Alert.alert('提示', '请输入登录密码');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.loginByPassword(loginAccount, loginPassword);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || res.user?.username}！`);
-      cloudSync.syncWithCloud();
-    } else {
-      Alert.alert('登录失败', res.message);
-    }
-  };
-
-  const handleSendPhoneCode = async () => {
-    if (!phone.trim()) {
-      Alert.alert('提示', '请输入手机号');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.sendSmsCode(phone);
-    setLoading(false);
-
-    if (res.success) {
-      setPhoneCountdown(60);
-      if (res.data) {
-        setPhoneCode(String(res.data));
-        Alert.alert('验证码已下发', `开发测试环境验证码：${res.data}（已自动填入）`);
-      } else {
-        Alert.alert('提示', '短信验证码已下发，请注意查收');
-      }
-    } else {
-      Alert.alert('发送失败', res.message);
-    }
-  };
-
-  const handlePhoneLogin = async () => {
-    if (!phone.trim() || !phoneCode.trim()) {
-      Alert.alert('提示', '请输入手机号及 4 位验证码');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.loginByPhone(phone, phoneCode);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('登录成功', `手机号 ${phone} 快捷登录成功！`);
-      cloudSync.syncWithCloud();
-    } else {
-      Alert.alert('登录失败', res.message);
-    }
-  };
 
   const handleTriggerSync = async () => {
     const res = await cloudSync.syncWithCloud();
@@ -267,321 +120,6 @@ export const MineScreen: React.FC = () => {
     ]);
   };
 
-  // ═════════════════════════════════════════════════════════════════════
-  // 1. 未登录渲染
-  // ═════════════════════════════════════════════════════════════════════
-  if (!currentUser) {
-    return (
-      <KeyboardAvoidingView
-        style={[styles.container, { paddingTop: insets.top }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.authScrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* 品牌 Branding 区域 */}
-          <View style={styles.authBrandSection}>
-            <View style={styles.authLogoWrap}>
-              <Image
-                source={require('../../../../assets/logo.png')}
-                style={styles.authLogoImg}
-                resizeMode="cover"
-              />
-            </View>
-            <Text style={styles.authBrandTitle}>三金记账</Text>
-            <Text style={styles.authBrandSlogan}>纯粹记账 · 开启云端多设备实时同步</Text>
-          </View>
-
-          {/* Segmented 切换胶囊栏 */}
-          <View style={styles.authSegmentBar}>
-            <TouchableOpacity
-              style={[styles.authSegmentItem, authTab === 'emailRegister' && styles.authSegmentItemActive]}
-              onPress={() => setAuthTab('emailRegister')}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.authSegmentText, authTab === 'emailRegister' && styles.authSegmentTextActive]}>
-                邮箱注册
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.authSegmentItem, authTab === 'accountLogin' && styles.authSegmentItemActive]}
-              onPress={() => setAuthTab('accountLogin')}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.authSegmentText, authTab === 'accountLogin' && styles.authSegmentTextActive]}>
-                账号登录
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.authSegmentItem, authTab === 'phoneLogin' && styles.authSegmentItemActive]}
-              onPress={() => setAuthTab('phoneLogin')}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.authSegmentText, authTab === 'phoneLogin' && styles.authSegmentTextActive]}>
-                手机快捷
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 表单主卡片 */}
-          <View style={styles.authFormCard}>
-            {authTab === 'emailRegister' && (
-              <View>
-                <View style={styles.authTipBanner}>
-                  <Text style={styles.authTipText}>
-                    ✉️ 输入邮箱即可快速开通云账号，享受账目永不丢失的云端实时同步。
-                  </Text>
-                </View>
-
-                <Text style={styles.fieldLabel}>电子邮箱</Text>
-                <View style={styles.inputBox}>
-                  <Text style={styles.inputPrefixIcon}>📧</Text>
-                  <TextInput
-                    style={styles.inputField}
-                    value={regEmail}
-                    onChangeText={setRegEmail}
-                    placeholder="请输入常用邮箱地址"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <Text style={styles.fieldLabel}>邮箱验证码</Text>
-                <View style={styles.codeRowBox}>
-                  <View style={[styles.inputBox, styles.codeInputFlex]}>
-                    <Text style={styles.inputPrefixIcon}>🔢</Text>
-                    <TextInput
-                      style={styles.inputField}
-                      value={regCode}
-                      onChangeText={setRegCode}
-                      placeholder="4 位验证码"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="number-pad"
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.sendCodePill,
-                      (loading || emailCountdown > 0) && styles.sendCodePillDisabled,
-                    ]}
-                    onPress={handleSendEmailCode}
-                    disabled={loading || emailCountdown > 0}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.sendCodePillText}>
-                      {emailCountdown > 0 ? `${emailCountdown}s` : '获取验证码'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={styles.fieldLabel}>设置登录密码</Text>
-                <View style={styles.inputBox}>
-                  <Text style={styles.inputPrefixIcon}>🔒</Text>
-                  <TextInput
-                    style={styles.inputField}
-                    value={regPassword}
-                    onChangeText={setRegPassword}
-                    placeholder="设置 6 位及以上安全密码"
-                    placeholderTextColor="#94A3B8"
-                    secureTextEntry={!showRegPassword}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowRegPassword(!showRegPassword)}
-                    style={styles.eyeBtn}
-                  >
-                    <Text style={styles.eyeBtnText}>{showRegPassword ? '👁️' : '🙈'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.authSubmitBtn, loading && styles.authSubmitBtnDisabled]}
-                  onPress={handleEmailRegister}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.authSubmitBtnText}>注 册 并 立 即 登 录</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.switchAuthLink}
-                  onPress={() => setAuthTab('accountLogin')}
-                >
-                  <Text style={styles.switchAuthText}>
-                    已有三金记账账号？<Text style={styles.switchAuthHighlight}>立即登录</Text>
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {authTab === 'accountLogin' && (
-              <View>
-                <View style={styles.authTipBanner}>
-                  <Text style={styles.authTipText}>
-                    🔑 支持使用已注册的用户名或邮箱及密码登录，立即同步您的本地账本。
-                  </Text>
-                </View>
-
-                <Text style={styles.fieldLabel}>账号 / 邮箱</Text>
-                <View style={styles.inputBox}>
-                  <Text style={styles.inputPrefixIcon}>👤</Text>
-                  <TextInput
-                    style={styles.inputField}
-                    value={loginAccount}
-                    onChangeText={setLoginAccount}
-                    placeholder="输入用户名或注册邮箱"
-                    placeholderTextColor="#94A3B8"
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <Text style={styles.fieldLabel}>登录密码</Text>
-                <View style={styles.inputBox}>
-                  <Text style={styles.inputPrefixIcon}>🔒</Text>
-                  <TextInput
-                    style={styles.inputField}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    placeholder="输入账号密码"
-                    placeholderTextColor="#94A3B8"
-                    secureTextEntry={!showLoginPassword}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowLoginPassword(!showLoginPassword)}
-                    style={styles.eyeBtn}
-                  >
-                    <Text style={styles.eyeBtnText}>{showLoginPassword ? '👁️' : '🙈'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.authSubmitBtn, loading && styles.authSubmitBtnDisabled]}
-                  onPress={handleAccountLogin}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.authSubmitBtnText}>立 即 登 录</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.switchAuthLink}
-                  onPress={() => setAuthTab('emailRegister')}
-                >
-                  <Text style={styles.switchAuthText}>
-                    还没有账号？<Text style={styles.switchAuthHighlight}>免费注册新账号</Text>
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {authTab === 'phoneLogin' && (
-              <View>
-                <View style={styles.authTipBanner}>
-                  <Text style={styles.authTipText}>
-                    📱 手机验证码一键免密登录，若手机号尚未注册将自动为您开通账户。
-                  </Text>
-                </View>
-
-                <Text style={styles.fieldLabel}>手机号码</Text>
-                <View style={styles.inputBox}>
-                  <Text style={styles.inputPrefixIcon}>📱</Text>
-                  <TextInput
-                    style={styles.inputField}
-                    value={phone}
-                    onChangeText={setPhone}
-                    placeholder="11 位中国大陆手机号码"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="phone-pad"
-                  />
-                </View>
-
-                <Text style={styles.fieldLabel}>短信验证码</Text>
-                <View style={styles.codeRowBox}>
-                  <View style={[styles.inputBox, styles.codeInputFlex]}>
-                    <Text style={styles.inputPrefixIcon}>🔢</Text>
-                    <TextInput
-                      style={styles.inputField}
-                      value={phoneCode}
-                      onChangeText={setPhoneCode}
-                      placeholder="4 位验证码"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="number-pad"
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.sendCodePill,
-                      (loading || phoneCountdown > 0) && styles.sendCodePillDisabled,
-                    ]}
-                    onPress={handleSendPhoneCode}
-                    disabled={loading || phoneCountdown > 0}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.sendCodePillText}>
-                      {phoneCountdown > 0 ? `${phoneCountdown}s` : '获取验证码'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.authSubmitBtn, loading && styles.authSubmitBtnDisabled]}
-                  onPress={handlePhoneLogin}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.authSubmitBtnText}>一 键 免 密 登 录</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.switchAuthLink}
-                  onPress={() => setAuthTab('emailRegister')}
-                >
-                  <Text style={styles.switchAuthText}>
-                    使用邮箱注册账号？<Text style={styles.switchAuthHighlight}>去邮箱注册</Text>
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          {/* 底部离线提示与协议 */}
-          <View style={styles.authBottomNoteSection}>
-            <Text style={styles.agreementText}>
-              注册即表示同意《用户服务协议》与《隐私政策》
-            </Text>
-            <View style={styles.offlineTipBox}>
-              <Text style={styles.offlineTipText}>
-                💡 离线记账友好：未登录时所有账目均保存在本地 MMKV 高速存储中；登录后将无缝开启云端自动双向同步。
-              </Text>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  // ═════════════════════════════════════════════════════════════════════
-  // 2. 已登录状态 ── 个人中心与云同步管理面板
-  // ═════════════════════════════════════════════════════════════════════
   return (
     <ScrollView
       style={[styles.container, { paddingTop: insets.top }]}
@@ -598,33 +136,57 @@ export const MineScreen: React.FC = () => {
           />
           <Text style={styles.appBarTitle}>个人中心</Text>
         </View>
-        <Text style={styles.appBarSub}>三金记账 v2.0 (Redux+MMKV)</Text>
+        <Text style={styles.appBarSub}>三金记账 v2.0</Text>
       </View>
 
       {/* 1. 用户账号身份卡片 */}
-      <View style={styles.userCard}>
-        <View style={styles.userAvatar}>
-          <Text style={styles.avatarText}>
-            {currentUser.displayName ? currentUser.displayName.slice(0, 1).toUpperCase() : '👤'}
-          </Text>
-        </View>
-        <View style={styles.userMeta}>
-          <View style={styles.userNameRow}>
-            <Text style={styles.userNameText}>{currentUser.displayName || currentUser.username}</Text>
-            <View style={styles.onlineBadge}>
-              <Text style={styles.onlineBadgeText}>已登录</Text>
-            </View>
+      {currentUser ? (
+        <View style={styles.userCard}>
+          <View style={styles.userAvatar}>
+            <Text style={styles.avatarText}>
+              {currentUser.displayName ? currentUser.displayName.slice(0, 1).toUpperCase() : '👤'}
+            </Text>
           </View>
-          <Text style={styles.userSubText}>
-            账号: {currentUser.username}
-            {currentUser.email ? ` | ${currentUser.email}` : ''}
-            {currentUser.phone ? ` | ${currentUser.phone}` : ''}
-          </Text>
+          <View style={styles.userMeta}>
+            <View style={styles.userNameRow}>
+              <Text style={styles.userNameText}>{currentUser.displayName || currentUser.username}</Text>
+              <View style={styles.onlineBadge}>
+                <Text style={styles.onlineBadgeText}>已登录</Text>
+              </View>
+            </View>
+            <Text style={styles.userSubText}>
+              账号: {currentUser.username}
+              {currentUser.email ? ` | ${currentUser.email}` : ''}
+              {currentUser.phone ? ` | ${currentUser.phone}` : ''}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={styles.logoutBtnText}>退出</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutBtnText}>退出</Text>
+      ) : (
+        <TouchableOpacity
+          style={styles.userCard}
+          onPress={() => dispatch(setAuthModalVisible(true))}
+          activeOpacity={0.85}
+        >
+          <View style={[styles.userAvatar, styles.userAvatarGuest]}>
+            <Text style={styles.avatarTextGuest}>👤</Text>
+          </View>
+          <View style={styles.userMeta}>
+            <View style={styles.userNameRow}>
+              <Text style={styles.userNameText}>未登录</Text>
+              <View style={styles.guestBadge}>
+                <Text style={styles.guestBadgeText}>离线记账</Text>
+              </View>
+            </View>
+            <Text style={styles.userSubText}>点击登录 / 注册，开启多端云同步</Text>
+          </View>
+          <View style={styles.loginActionBtn}>
+            <Text style={styles.loginActionBtnText}>立即登录</Text>
+          </View>
         </TouchableOpacity>
-      </View>
+      )}
 
       {/* 2. 同步状态看板 */}
       <View style={styles.statusCard}>
@@ -633,7 +195,9 @@ export const MineScreen: React.FC = () => {
           <View
             style={[
               styles.statusPill,
-              syncStatus === 'syncing'
+              !currentUser
+                ? styles.statusPillGuest
+                : syncStatus === 'syncing'
                 ? styles.statusPillSyncing
                 : syncStatus === 'error'
                 ? styles.statusPillError
@@ -641,7 +205,9 @@ export const MineScreen: React.FC = () => {
             ]}
           >
             <Text style={styles.statusPillText}>
-              {syncStatus === 'syncing'
+              {!currentUser
+                ? '离线模式'
+                : syncStatus === 'syncing'
                 ? '正在同步...'
                 : syncStatus === 'success'
                 ? '增量同步就绪'
@@ -687,14 +253,16 @@ export const MineScreen: React.FC = () => {
             styles.syncNowBtn,
             syncStatus === 'syncing' && styles.syncNowBtnDisabled,
           ]}
-          onPress={handleTriggerSync}
+          onPress={currentUser ? handleTriggerSync : () => dispatch(setAuthModalVisible(true))}
           disabled={syncStatus === 'syncing'}
           activeOpacity={0.8}
         >
           {syncStatus === 'syncing' ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <Text style={styles.syncNowBtnText}>立即与云端双向同步</Text>
+            <Text style={styles.syncNowBtnText}>
+              {currentUser ? '立即与云端双向同步' : '登录以启用云端实时同步'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -803,223 +371,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  authScrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 40,
-  },
-  authBrandSection: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  authLogoWrap: {
-    width: 68,
-    height: 68,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: Colors.primaryDark,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#E0F2FE',
-  },
-  authLogoImg: {
-    width: 58,
-    height: 58,
-    borderRadius: 14,
-  },
-  authBrandTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  authBrandSlogan: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  authSegmentBar: {
-    flexDirection: 'row',
-    backgroundColor: '#E2E8F0',
-    borderRadius: 14,
-    padding: 3,
-    marginBottom: 16,
-  },
-  authSegmentItem: {
-    flex: 1,
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-  },
-  authSegmentItemActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  authSegmentText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  authSegmentTextActive: {
-    color: Colors.primary,
-    fontWeight: '700',
-  },
-  authFormCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  authTipBanner: {
-    backgroundColor: '#F0F9FF',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.primary,
-  },
-  authTipText: {
-    fontSize: 12,
-    color: '#0369A1',
-    lineHeight: 17,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 6,
-    marginTop: 6,
-  },
-  inputBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    height: 46,
-    marginBottom: 8,
-  },
-  inputPrefixIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
-  inputField: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    paddingVertical: 0,
-  },
-  eyeBtn: {
-    padding: 6,
-  },
-  eyeBtnText: {
-    fontSize: 16,
-  },
-  codeRowBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  codeInputFlex: {
-    flex: 1,
-    marginRight: 8,
-    marginBottom: 0,
-  },
-  sendCodePill: {
-    backgroundColor: Colors.primary,
-    height: 46,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 96,
-  },
-  sendCodePillDisabled: {
-    backgroundColor: '#94A3B8',
-  },
-  sendCodePillText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  authSubmitBtn: {
-    backgroundColor: Colors.primary,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 14,
-    shadowColor: Colors.primaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  authSubmitBtnDisabled: {
-    backgroundColor: '#94A3B8',
-  },
-  authSubmitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  switchAuthLink: {
-    marginTop: 14,
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  switchAuthText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  switchAuthHighlight: {
-    color: Colors.primary,
-    fontWeight: '700',
-  },
-  authBottomNoteSection: {
-    marginTop: 18,
-    alignItems: 'center',
-  },
-  agreementText: {
-    fontSize: 11,
-    color: '#94A3B8',
-    marginBottom: 10,
-  },
-  offlineTipBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  offlineTipText: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    lineHeight: 16,
-    textAlign: 'center',
-  },
   appBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1071,10 +422,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
+  userAvatarGuest: {
+    backgroundColor: '#F1F5F9',
+  },
   avatarText: {
     fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  avatarTextGuest: {
+    fontSize: 20,
   },
   userMeta: {
     flex: 1,
@@ -1100,6 +457,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#065F46',
   },
+  guestBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  guestBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+  },
   userSubText: {
     fontSize: 12,
     color: Colors.textSecondary,
@@ -1115,6 +483,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
     fontWeight: '600',
+  },
+  loginActionBtn: {
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  loginActionBtnText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   statusCard: {
     backgroundColor: '#FFFFFF',
@@ -1144,6 +523,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+  },
+  statusPillGuest: {
+    backgroundColor: '#F1F5F9',
   },
   statusPillSyncing: {
     backgroundColor: '#FEF3C7',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -8,12 +8,12 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Image,
+  Pressable,
 } from 'react-native';
-import { Colors } from '../../../shared/theme/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authService } from '../services/authService';
 import { cloudSync } from '../../bookkeep/services/cloudSync';
 
@@ -21,402 +21,569 @@ interface AuthModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
-  initialMode?: 'passwordLogin' | 'phoneLogin' | 'emailRegister';
+  initialMode?: 'emailCode' | 'passwordLogin';
 }
+
+type AuthStep = 'email_code_request' | 'email_code_verify' | 'password_login';
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   visible,
   onClose,
   onSuccess,
-  initialMode = 'passwordLogin',
+  initialMode = 'emailCode',
 }) => {
-  const [tab, setTab] = useState<'passwordLogin' | 'phoneLogin' | 'emailRegister'>(initialMode);
+  const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<AuthStep>('email_code_request');
   const [loading, setLoading] = useState(false);
 
-  // 1. 账号密码登录表单
-  const [account, setAccount] = useState('admin1');
-  const [password, setPassword] = useState('123456');
-
-  // 2. 手机验证码登录表单
-  const [phone, setPhone] = useState('13800138000');
-  const [phoneCode, setPhoneCode] = useState('');
-  const [phoneCountdown, setPhoneCountdown] = useState(0);
-
-  // 3. 邮箱注册表单
+  // 表单数据
   const [email, setEmail] = useState('');
-  const [emailCode, setEmailCode] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [emailCountdown, setEmailCountdown] = useState(0);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [agreePolicy, setAgreePolicy] = useState(false);
+
+  // 验证码倒计时
+  const [countdown, setCountdown] = useState(0);
+
+  // 输入框焦点与引用
+  const codeInputRef = useRef<any>(null);
 
   useEffect(() => {
     if (visible) {
-      setTab(initialMode);
+      if (initialMode === 'passwordLogin') {
+        setStep('password_login');
+      } else {
+        setStep('email_code_request');
+      }
+      setCode('');
     }
   }, [visible, initialMode]);
 
-  // 手机验证码倒计时
+  // 倒计时计时器
   useEffect(() => {
-    if (phoneCountdown > 0) {
-      const timer = setTimeout(() => setPhoneCountdown(c => c - 1), 1000);
-      return () => clearTimeout(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(c => c - 1), 1000);
     }
-  }, [phoneCountdown]);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
-  // 邮箱验证码倒计时
+  // 当进入验证码界面时，自动聚焦到验证码输入框
   useEffect(() => {
-    if (emailCountdown > 0) {
-      const timer = setTimeout(() => setEmailCountdown(c => c - 1), 1000);
-      return () => clearTimeout(timer);
+    if (step === 'email_code_verify') {
+      const focusTimer = setTimeout(() => {
+        codeInputRef.current?.focus();
+      }, 300);
+      return () => clearTimeout(focusTimer);
     }
-  }, [emailCountdown]);
+  }, [step]);
 
-  // 快速填入内置管理员测试账号
-  const handleQuickFillAdmin = () => {
-    setAccount('admin1');
-    setPassword('123456');
+  // 邮箱基本正则校验
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  // 检查协议是否已同意，未同意则引导同意
+  const ensurePolicyAgreed = (onAgreed: () => void) => {
+    if (agreePolicy) {
+      onAgreed();
+    } else {
+      Alert.alert(
+        '服务协议提示',
+        '请阅读并同意《用户协议》和《隐私政策》后继续',
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: '同意并继续',
+            onPress: () => {
+              setAgreePolicy(true);
+              onAgreed();
+            },
+          },
+        ]
+      );
+    }
   };
 
-  // 1. 提交账号密码登录
+  // 1. 获取验证码 (进入 Step 2)
+  const handleRequestCode = async () => {
+    if (!email.trim()) {
+      Alert.alert('提示', '请输入常用邮箱地址');
+      return;
+    }
+    if (!isEmailValid) {
+      Alert.alert('提示', '请输入有效的邮箱地址格式');
+      return;
+    }
+
+    ensurePolicyAgreed(async () => {
+      setLoading(true);
+      const res = await authService.sendRegisterEmailCode(email.trim());
+      setLoading(false);
+
+      if (res.success) {
+        setCountdown(60);
+        setCode('');
+        setStep('email_code_verify');
+        if (res.data && String(res.data).length === 4) {
+          Alert.alert('验证码已下发', `测试环境验证码：${res.data}（将在验证码输入页为您自动聚焦）`);
+        } else {
+          Alert.alert('提示', `验证码已发送至 ${email.trim()}，请查收邮件`);
+        }
+      } else {
+        Alert.alert('发送失败', res.message);
+      }
+    });
+  };
+
+  // 2. 验证码输入并自动登录
+  const handleVerifyCode = async (codeToVerify: string) => {
+    if (codeToVerify.length !== 4) return;
+    setLoading(true);
+    const res = await authService.loginByEmailCode(email.trim(), codeToVerify);
+    setLoading(false);
+
+    if (res.success) {
+      Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || email.trim()}！已为您开启云端多端同步。`);
+      cloudSync.syncWithCloud();
+      onSuccess?.();
+      onClose();
+    } else {
+      Alert.alert('登录失败', res.message, [
+        {
+          text: '确定',
+          onPress: () => {
+            setCode('');
+            codeInputRef.current?.focus();
+          },
+        },
+      ]);
+    }
+  };
+
+  const handleCodeChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4);
+    setCode(cleaned);
+    if (cleaned.length === 4) {
+      handleVerifyCode(cleaned);
+    }
+  };
+
+  // 3. 密码登录提交
   const handlePasswordLogin = async () => {
-    if (!account.trim() || !password.trim()) {
-      Alert.alert('提示', '请输入用户名/邮箱及密码');
+    if (!email.trim()) {
+      Alert.alert('提示', '请输入邮箱或账号');
       return;
     }
-    setLoading(true);
-    const res = await authService.loginByPassword(account, password);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || account}！已连接云端同步。`);
-      cloudSync.syncWithCloud();
-      onSuccess?.();
-      onClose();
-    } else {
-      Alert.alert('登录失败', res.message);
-    }
-  };
-
-  // 2. 发送手机验证码
-  const handleSendPhoneCode = async () => {
-    if (!phone.trim()) {
-      Alert.alert('提示', '请输入手机号');
+    if (!password.trim()) {
+      Alert.alert('提示', '请输入登录密码');
       return;
     }
-    setLoading(true);
-    const res = await authService.sendSmsCode(phone);
-    setLoading(false);
 
-    if (res.success) {
-      setPhoneCountdown(60);
-      if (res.data) {
-        setPhoneCode(String(res.data));
-        Alert.alert('验证码已下发', `开发测试环境验证码：${res.data}（已为您自动填入）`);
+    ensurePolicyAgreed(async () => {
+      setLoading(true);
+      const res = await authService.loginByPassword(email.trim(), password.trim());
+      setLoading(false);
+
+      if (res.success) {
+        Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || email.trim()}！`);
+        cloudSync.syncWithCloud();
+        onSuccess?.();
+        onClose();
       } else {
-        Alert.alert('提示', '验证码已下发，请查收短信');
+        Alert.alert('登录失败', res.message);
       }
-    } else {
-      Alert.alert('发送失败', res.message);
-    }
+    });
   };
 
-  // 提交手机登录/免密注册
-  const handlePhoneLogin = async () => {
-    if (!phone.trim() || !phoneCode.trim()) {
-      Alert.alert('提示', '请输入手机号及 4 位验证码');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.loginByPhone(phone, phoneCode);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('登录成功', `手机号 ${phone} 快捷登录成功！已开启云端同步。`);
-      cloudSync.syncWithCloud();
-      onSuccess?.();
-      onClose();
-    } else {
-      Alert.alert('登录失败', res.message);
-    }
+  // 快速填入预置测试管理员账号
+  const handleQuickFillAdmin = () => {
+    setEmail('admin1');
+    setPassword('123456');
+    setAgreePolicy(true);
   };
 
-  // 3. 发送邮箱注册验证码
-  const handleSendEmailCode = async () => {
-    if (!email.trim() || !email.includes('@')) {
-      Alert.alert('提示', '请输入合法的邮箱地址');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.sendRegisterEmailCode(email);
-    setLoading(false);
-
-    if (res.success) {
-      setEmailCountdown(60);
-      if (res.data && res.data.length === 4) {
-        setEmailCode(res.data);
-        Alert.alert('验证码提示', `测试环境验证码：${res.data}（已自动填入）`);
-      } else {
-        Alert.alert('提示', '验证码已发送至您的邮箱，请前往查收并在 5 分钟内使用');
-      }
-    } else {
-      Alert.alert('发送失败', res.message);
-    }
+  // 账号找回提示
+  const handleAccountRecovery = () => {
+    Alert.alert(
+      '账号找回',
+      '如您忘记密码或无法接收验证码，请联系管理员微信或发送邮件至 support@sanjin.com 进行人工申诉。',
+      [{ text: '我知道了' }]
+    );
   };
 
-  // 提交邮箱注册
-  const handleEmailRegister = async () => {
-    if (!email.trim() || !emailCode.trim() || !regPassword.trim()) {
-      Alert.alert('提示', '请完整填写邮箱、验证码和密码');
-      return;
-    }
-    if (regPassword.length < 6) {
-      Alert.alert('提示', '密码长度至少需为 6 位');
-      return;
-    }
-    setLoading(true);
-    const res = await authService.registerByEmail(email, emailCode, regPassword);
-    setLoading(false);
-
-    if (res.success) {
-      Alert.alert('注册成功', `恭喜注册成功，已自动登录并开启云端多端同步！`);
-      cloudSync.syncWithCloud();
-      onSuccess?.();
-      onClose();
-    } else {
-      Alert.alert('注册失败', res.message);
-    }
+  // 第三方登录提示
+  const handleThirdPartyLogin = (platform: 'Apple' | '微信') => {
+    ensurePolicyAgreed(() => {
+      Alert.alert(
+        `${platform}登录`,
+        `${platform}快捷登录服务对接中，当前推荐使用邮箱验证码极速免密登录！`,
+        [{ text: '确定' }]
+      );
+    });
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
-        style={styles.overlay}
+        style={styles.fullScreen}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
+          {/* 顶栏操作区：左上角关闭或返回 */}
+          <View style={styles.navBar}>
+            {step === 'email_code_verify' ? (
+              <TouchableOpacity
+                onPress={() => setStep('email_code_request')}
+                style={styles.navIconBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.backChevron}>‹</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.navIconBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.closeCross}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-        <View style={styles.modalCard}>
-          {/* 顶部标题与关闭 */}
-          <View style={styles.headerRow}>
-            <View style={styles.titleWithIcon}>
+          {/* 页面主内容区域 */}
+          <View style={styles.body}>
+            {/* ─────────────────────────────────────────────────────────────
+                1. 验证码登录请求界面 (图一风格)
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'email_code_request' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>验证码登录</Text>
+
+                {/* 单行底边线输入框 */}
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="输入邮箱"
+                    placeholderTextColor="#CBD5E1"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {email.length > 0 && (
+                    <TouchableOpacity onPress={() => setEmail('')} style={styles.clearIconBtn}>
+                      <Text style={styles.clearIconText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* 获取验证码主按钮 */}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    isEmailValid && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleRequestCode}
+                  disabled={!isEmailValid || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        isEmailValid ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      获取验证码
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* 按钮下方文字链接：左下角密码登录，右下角账号找回 */}
+                <View style={styles.subLinksRow}>
+                  <TouchableOpacity
+                    onPress={() => setStep('password_login')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkLeftText}>密码登录</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleAccountRecovery}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkRightText}>账号找回</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                2. 验证码输入界面 (图二风格)
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'email_code_verify' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>输入验证码</Text>
+                <Text style={styles.pageSubTitle}>{email.trim()}</Text>
+
+                {/* 4 位独立方框验证码展示区 */}
+                <Pressable
+                  style={styles.codeBoxesContainer}
+                  onPress={() => codeInputRef.current?.focus()}
+                >
+                  {[0, 1, 2, 3].map(index => {
+                    const char = code[index] || '';
+                    const isCurrent = code.length === index;
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.codeBox,
+                          isCurrent && styles.codeBoxFocused,
+                          char ? styles.codeBoxFilled : null,
+                        ]}
+                      >
+                        {char ? (
+                          <Text style={styles.codeCharText}>{char}</Text>
+                        ) : isCurrent ? (
+                          <View style={styles.cursorLine} />
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </Pressable>
+
+                {/* 隐藏的绝对定位真实输入框 */}
+                <TextInput
+                  ref={codeInputRef}
+                  style={styles.hiddenInput}
+                  value={code}
+                  onChangeText={handleCodeChange}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  caretHidden={true}
+                />
+
+                {/* 重新发送 / 倒计时按钮 */}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    countdown === 0 && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleRequestCode}
+                  disabled={countdown > 0 || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        countdown === 0 ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      {countdown > 0 ? `重新发送(${countdown}s)` : '重新发送'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* 按钮右下方账号找回 */}
+                <View style={styles.subLinksRightOnly}>
+                  <TouchableOpacity
+                    onPress={handleAccountRecovery}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkRightText}>账号找回</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                3. 密码登录界面 (同理风格)
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'password_login' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>密码登录</Text>
+
+                {/* 单行底边线：邮箱/账号 */}
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="输入邮箱 / 账号"
+                    placeholderTextColor="#CBD5E1"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {email.length > 0 && (
+                    <TouchableOpacity onPress={() => setEmail('')} style={styles.clearIconBtn}>
+                      <Text style={styles.clearIconText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* 单行底边线：密码 */}
+                <View style={[styles.singleLineInputBox, styles.inputMarginTop]}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="输入密码"
+                    placeholderTextColor="#CBD5E1"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.eyeIconText}>{showPassword ? '👁️' : '🙈'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 快捷测试账号填充 */}
+                <View style={styles.quickFillWrap}>
+                  <TouchableOpacity onPress={handleQuickFillAdmin}>
+                    <Text style={styles.quickFillText}>填入测试账号 (admin1 / 123456)</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 登录主按钮 */}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    email.trim() && password.trim() && !loading
+                      ? styles.primaryButtonActive
+                      : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handlePasswordLogin}
+                  disabled={!email.trim() || !password.trim() || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        email.trim() && password.trim()
+                          ? styles.primaryButtonTextActive
+                          : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      登 录
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* 按钮下方文字链接：左下角验证码登录，右下角账号找回 */}
+                <View style={styles.subLinksRow}>
+                  <TouchableOpacity
+                    onPress={() => setStep('email_code_request')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkLeftText}>验证码登录</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleAccountRecovery}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkRightText}>账号找回</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* ─────────────────────────────────────────────────────────────
+              底部公共区域：第三方登录 + 协议勾选 + 品牌 Logo
+             ───────────────────────────────────────────────────────────── */}
+          <View style={styles.footer}>
+            {/* 第三方登录按钮（在首屏和密码页展示） */}
+            {step !== 'email_code_verify' && (
+              <View style={styles.thirdPartyRow}>
+                <TouchableOpacity
+                  style={styles.thirdPartyBtn}
+                  onPress={() => handleThirdPartyLogin('Apple')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.appleLogoIcon}></Text>
+                  <Text style={styles.thirdPartyBtnText}>通过Apple登录</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.thirdPartyBtn}
+                  onPress={() => handleThirdPartyLogin('微信')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.wechatLogoIcon}>💬</Text>
+                  <Text style={styles.thirdPartyBtnText}>微信登录</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* 协议勾选行 */}
+            <TouchableOpacity
+              style={styles.agreementRow}
+              onPress={() => setAgreePolicy(!agreePolicy)}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.checkboxCircle, agreePolicy && styles.checkboxCircleChecked]}>
+                {agreePolicy && <Text style={styles.checkboxCheckmark}>✓</Text>}
+              </View>
+              <Text style={styles.agreementText}>
+                我已阅读并同意
+                <Text
+                  style={styles.agreementLink}
+                  onPress={() =>
+                    Alert.alert(
+                      '用户协议',
+                      '三金记账承诺保护您的数据隐私与账本安全，支持本地极速离线存储与多设备云端安全同步。'
+                    )
+                  }
+                >
+                  《用户协议》
+                </Text>
+                和
+                <Text
+                  style={styles.agreementLink}
+                  onPress={() =>
+                    Alert.alert(
+                      '隐私政策',
+                      '我们仅在您主动开启云端同步时传输加密记账凭证，不收集任何未经授权的第三方个人信息。'
+                    )
+                  }
+                >
+                  《隐私政策》
+                </Text>
+              </Text>
+            </TouchableOpacity>
+
+            {/* 底部品牌 Logo 标识 */}
+            <View style={styles.brandRow}>
               <Image
                 source={require('../../../../assets/logo.png')}
-                style={styles.headerLogo}
-                resizeMode="cover"
+                style={styles.brandLogo}
+                resizeMode="contain"
               />
-              <Text style={styles.headerTitle}>三金记账 · 账号中心</Text>
+              <Text style={styles.brandName}>三金记账</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
           </View>
-
-          {/* 模式选择 Tab */}
-          <View style={styles.tabBar}>
-            <TouchableOpacity
-              style={[styles.tabButton, tab === 'passwordLogin' && styles.tabButtonActive]}
-              onPress={() => setTab('passwordLogin')}
-            >
-              <Text style={[styles.tabButtonText, tab === 'passwordLogin' && styles.tabButtonTextActive]}>
-                账号登录
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.tabButton, tab === 'phoneLogin' && styles.tabButtonActive]}
-              onPress={() => setTab('phoneLogin')}
-            >
-              <Text style={[styles.tabButtonText, tab === 'phoneLogin' && styles.tabButtonTextActive]}>
-                手机快捷登录
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.tabButton, tab === 'emailRegister' && styles.tabButtonActive]}
-              onPress={() => setTab('emailRegister')}
-            >
-              <Text style={[styles.tabButtonText, tab === 'emailRegister' && styles.tabButtonTextActive]}>
-                注册新账号
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
-            {/* Tab 1: 账号密码登录 */}
-            {tab === 'passwordLogin' && (
-              <View style={styles.formContainer}>
-                <View style={styles.tipBox}>
-                  <Text style={styles.tipText}>
-                    💡 支持使用三金记账云端账号或邮箱登录。登录后，本地记账将自动增量同步到服务端云数据库。
-                  </Text>
-                </View>
-
-                <Text style={styles.inputLabel}>登录账号（用户名 / 邮箱）</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={account}
-                  onChangeText={setAccount}
-                  placeholder="例如: admin1 或 xin@example.com"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                />
-
-                <Text style={[styles.inputLabel, styles.inputMarginTop]}>登录密码</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="请输入密码 (如: 123456)"
-                  placeholderTextColor="#94A3B8"
-                  secureTextEntry={true}
-                />
-
-                <View style={styles.helperRow}>
-                  <TouchableOpacity onPress={handleQuickFillAdmin}>
-                    <Text style={styles.quickFillLink}>填入预置测试账号 (admin1 / 123456)</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-                  onPress={handlePasswordLogin}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.submitButtonText}>登 录 并 启 用 同 步</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Tab 2: 手机验证码快捷登录 */}
-            {tab === 'phoneLogin' && (
-              <View style={styles.formContainer}>
-                <View style={styles.tipBox}>
-                  <Text style={styles.tipText}>
-                    📱 手机快捷登录：未注册过的手机号，在首次验证通过后将自动完成注册！
-                  </Text>
-                </View>
-
-                <Text style={styles.inputLabel}>手机号码</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="请输入11位手机号"
-                  placeholderTextColor="#94A3B8"
-                  keyboardType="phone-pad"
-                />
-
-                <Text style={[styles.inputLabel, styles.inputMarginTop]}>短信验证码</Text>
-                <View style={styles.codeRow}>
-                  <TextInput
-                    style={[styles.textInput, styles.codeInput]}
-                    value={phoneCode}
-                    onChangeText={setPhoneCode}
-                    placeholder="4位数字验证码"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="number-pad"
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.sendCodeBtn,
-                      (loading || phoneCountdown > 0) && styles.sendCodeBtnDisabled,
-                    ]}
-                    onPress={handleSendPhoneCode}
-                    disabled={loading || phoneCountdown > 0}
-                  >
-                    <Text style={styles.sendCodeBtnText}>
-                      {phoneCountdown > 0 ? `${phoneCountdown}s 后重发` : '获取验证码'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-                  onPress={handlePhoneLogin}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.submitButtonText}>快 捷 登 录 / 免 密 注 册</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Tab 3: 邮箱注册新账号 */}
-            {tab === 'emailRegister' && (
-              <View style={styles.formContainer}>
-                <View style={styles.tipBox}>
-                  <Text style={styles.tipText}>
-                    ✉️ 邮箱注册：输入邮箱获取 4 位验证码并设置密码即可快速注册独立账号。
-                  </Text>
-                </View>
-
-                <Text style={styles.inputLabel}>注册邮箱</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="例如: yourname@domain.com"
-                  placeholderTextColor="#94A3B8"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-
-                <Text style={[styles.inputLabel, styles.inputMarginTop]}>邮箱验证码</Text>
-                <View style={styles.codeRow}>
-                  <TextInput
-                    style={[styles.textInput, styles.codeInput]}
-                    value={emailCode}
-                    onChangeText={setEmailCode}
-                    placeholder="4位数字验证码"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="number-pad"
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.sendCodeBtn,
-                      (loading || emailCountdown > 0) && styles.sendCodeBtnDisabled,
-                    ]}
-                    onPress={handleSendEmailCode}
-                    disabled={loading || emailCountdown > 0}
-                  >
-                    <Text style={styles.sendCodeBtnText}>
-                      {emailCountdown > 0 ? `${emailCountdown}s 后重发` : '发送验证码'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={[styles.inputLabel, styles.inputMarginTop]}>设置登录密码</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={regPassword}
-                  onChangeText={setRegPassword}
-                  placeholder="设置6位以上新密码"
-                  placeholderTextColor="#94A3B8"
-                  secureTextEntry={true}
-                />
-
-                <TouchableOpacity
-                  style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-                  onPress={handleEmailRegister}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.submitButtonText}>注 册 并 立 即 登 录</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View style={styles.bottomSpacer} />
-          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -424,188 +591,276 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  overlay: {
+  fullScreen: {
     flex: 1,
-    backgroundColor: Colors.modalOverlay,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    flex: 1,
-  },
-  modalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    maxHeight: '85%',
-    paddingTop: 18,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 20,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  container: {
+    flex: 1,
+    paddingHorizontal: 30,
     justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  titleWithIcon: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerLogo: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeBtnText: {
-    fontSize: 16,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 16,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 9,
-    alignItems: 'center',
-    borderRadius: 9,
-  },
-  tabButtonActive: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
   },
-  tabButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colors.textSecondary,
+  navBar: {
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
-  tabButtonTextActive: {
+  navIconBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  closeCross: {
+    fontSize: 22,
+    color: '#0F172A',
+    fontWeight: '300',
+  },
+  backChevron: {
+    fontSize: 34,
+    color: '#0F172A',
+    fontWeight: '300',
+    lineHeight: 36,
+  },
+  body: {
+    flex: 1,
+    paddingTop: 16,
+  },
+  stepContainer: {
+    width: '100%',
+  },
+  pageTitle: {
+    fontSize: 28,
     fontWeight: '700',
-    color: Colors.primary,
+    color: '#0F172A',
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
-  formScroll: {
-    flexGrow: 0,
+  pageSubTitle: {
+    fontSize: 16,
+    color: '#94A3B8',
+    marginBottom: 28,
   },
-  formContainer: {
-    paddingVertical: 4,
+  singleLineInputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingVertical: 14,
+    marginTop: 20,
+    marginBottom: 30,
   },
-  tipBox: {
-    backgroundColor: Colors.primaryLight,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    marginBottom: 14,
+  singleLineInput: {
+    flex: 1,
+    fontSize: 17,
+    color: '#0F172A',
+    padding: 0,
   },
-  tipText: {
-    fontSize: 12,
-    color: Colors.primaryDark,
-    lineHeight: 18,
+  clearIconBtn: {
+    padding: 4,
   },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    marginBottom: 6,
+  clearIconText: {
+    fontSize: 14,
+    color: '#94A3B8',
   },
   inputMarginTop: {
-    marginTop: 12,
+    marginTop: 4,
+    marginBottom: 16,
   },
-  textInput: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 14,
-    color: Colors.textPrimary,
+  eyeBtn: {
+    padding: 4,
   },
-  codeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  eyeIconText: {
+    fontSize: 18,
   },
-  codeInput: {
-    flex: 1,
-    marginRight: 10,
+  quickFillWrap: {
+    alignItems: 'flex-end',
+    marginBottom: 18,
   },
-  sendCodeBtn: {
-    backgroundColor: Colors.primaryLight,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendCodeBtnDisabled: {
-    opacity: 0.5,
-  },
-  sendCodeBtnText: {
-    color: Colors.primary,
+  quickFillText: {
     fontSize: 13,
+    color: '#2563EB',
+    fontWeight: '500',
+  },
+  primaryButton: {
+    width: '100%',
+    height: 52,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButtonActive: {
+    backgroundColor: '#1E293B',
+  },
+  primaryButtonDisabled: {
+    backgroundColor: '#F8FAFC',
+  },
+  primaryButtonText: {
+    fontSize: 16,
     fontWeight: '600',
   },
-  helperRow: {
+  primaryButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  primaryButtonTextDisabled: {
+    color: '#CBD5E1',
+  },
+  subLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 18,
+    paddingHorizontal: 2,
+  },
+  subLinksRightOnly: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  quickFillLink: {
-    fontSize: 12,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  submitButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 20,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    marginTop: 18,
+    paddingHorizontal: 2,
   },
-  submitButtonDisabled: {
-    opacity: 0.6,
+  subLinkLeftText: {
+    fontSize: 14,
+    color: '#475569',
   },
-  submitButtonText: {
-    fontSize: 15,
+  subLinkRightText: {
+    fontSize: 14,
+    color: '#94A3B8',
+  },
+  // 4 位方块验证码样式
+  codeBoxesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 36,
+    marginTop: 10,
+    position: 'relative',
+  },
+  codeBox: {
+    width: 64,
+    height: 64,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  codeBoxFocused: {
+    borderColor: '#0F172A',
+    borderWidth: 1.5,
+  },
+  codeBoxFilled: {
+    borderColor: '#0F172A',
+  },
+  codeCharText: {
+    fontSize: 26,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1,
+    color: '#0F172A',
   },
-  bottomSpacer: {
-    height: 30,
+  cursorLine: {
+    width: 2,
+    height: 28,
+    backgroundColor: '#0284C7',
+  },
+  hiddenInput: {
+    position: 'absolute',
+    top: -1000,
+    left: -1000,
+    opacity: 0,
+    height: 0,
+    width: 0,
+  },
+  // 底部区域
+  footer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 10,
+  },
+  thirdPartyRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+    marginBottom: 20,
+    gap: 12,
+  },
+  thirdPartyBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  appleLogoIcon: {
+    fontSize: 17,
+    color: '#0F172A',
+    marginRight: 6,
+    fontWeight: '700',
+  },
+  wechatLogoIcon: {
+    fontSize: 16,
+    marginRight: 6,
+  },
+  thirdPartyBtnText: {
+    fontSize: 13,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  agreementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  checkboxCircle: {
+    width: 17,
+    height: 17,
+    borderRadius: 8.5,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxCircleChecked: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  checkboxCheckmark: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
+  },
+  agreementText: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  agreementLink: {
+    color: '#475569',
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  brandLogo: {
+    width: 18,
+    height: 18,
+    marginRight: 6,
+    borderRadius: 4,
+  },
+  brandName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: 0.5,
   },
 });

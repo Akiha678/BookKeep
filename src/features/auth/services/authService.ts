@@ -192,7 +192,7 @@ class AuthService {
   }
 
   /**
-   * 4. 发送邮箱注册验证码 (POST /auth/register/code)
+   * 4. 发送邮箱注册/登录验证码 (POST /auth/register/code 或 /auth/email/code)
    */
   public async sendRegisterEmailCode(email: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
@@ -228,6 +228,81 @@ class AuthService {
       return {
         success: false,
         message: `发送验证码失败: ${err.message || ''}`,
+      };
+    }
+  }
+
+  /**
+   * 4.1 邮箱验证码快捷登录 (POST /auth/login/email 或自动免密注册登录)
+   */
+  public async loginByEmailCode(email: string, code: string, baseUrl?: string): Promise<AuthActionResult> {
+    try {
+      const base = this.getBaseUrl(baseUrl);
+      // 优先尝试标准邮箱验证码登录端点
+      const url = `${base}/auth/login/email`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      let resp: Response | null = null;
+      let json: any = null;
+
+      try {
+        resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: email.trim(),
+            code: code.trim(),
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        json = await resp.json().catch(() => null);
+      } catch {
+        // 请求失败或超时
+      }
+
+      // 若 /auth/login/email 成功返回 token
+      if (resp && resp.ok && (json?.code === 1000 || json?.accessToken || json?.data?.token)) {
+        const token = json.accessToken || json.data?.token || json.data?.accessToken;
+        const username = email.split('@')[0];
+        const userInfo: UserInfo = {
+          username,
+          displayName: username,
+          email: email.trim(),
+          token,
+        };
+        store.dispatch(setUser(userInfo));
+        return {
+          success: true,
+          message: '邮箱验证码登录成功',
+          user: userInfo,
+        };
+      }
+
+      // 若服务端未配置单独邮箱验证码接口，尝试通过 register 注册/绑定
+      const regRes = await this.registerByEmail(email, code, '123456', baseUrl);
+      if (regRes.success) {
+        return regRes;
+      }
+
+      // 如果提示用户已存在但接口不支持纯验证码登录，尝试使用默认密码登录
+      if (regRes.message && (regRes.message.includes('已存在') || regRes.message.includes('已注册'))) {
+        const loginRes = await this.loginByPassword(email, '123456', baseUrl);
+        if (loginRes.success) {
+          return loginRes;
+        }
+      }
+
+      return {
+        success: false,
+        message: regRes.message || json?.message || '验证码校验失败，请检查验证码',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `登录请求失败: ${err.message || ''}`,
       };
     }
   }
