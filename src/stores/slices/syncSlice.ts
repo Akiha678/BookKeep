@@ -16,7 +16,10 @@ const savedConfig = mmkvStorage.getSyncConfig();
 const initialState: SyncState = {
   syncStatus: 'idle',
   autoSync: savedConfig.autoSync ?? true,
-  serverUrl: savedConfig.serverUrl || 'http://10.10.1.9:8080',
+  serverUrl:
+    savedConfig.serverUrl && savedConfig.serverUrl !== 'http://10.10.1.9:8080'
+      ? savedConfig.serverUrl
+      : 'http://111.231.53.205:8080',
   lastSyncTime: savedConfig.lastSyncTime || null,
   lastError: null,
   syncModalVisible: false,

@@ -3,7 +3,7 @@ import { mmkvStorage } from '../../../shared/storage/mmkvStorage';
 import { store } from '../../../stores';
 import { setUser, logout } from '../../../stores/slices/authSlice';
 
-export const DEFAULT_SERVER_BASE = 'http://10.10.1.9:8080';
+export const DEFAULT_SERVER_BASE = 'http://111.231.53.205:8080';
 
 export interface AuthActionResult {
   success: boolean;
@@ -12,10 +12,22 @@ export interface AuthActionResult {
   user?: UserInfo;
 }
 
+export interface CaptchaResult {
+  success: boolean;
+  captchaId?: string;
+  imageBase64?: string;
+  message?: string;
+}
+
+const NETWORK_TIMEOUT = 15000;
+
 class AuthService {
   private getBaseUrl(customUrl?: string): string {
     const config = mmkvStorage.getSyncConfig();
-    const url = customUrl || config.serverUrl || DEFAULT_SERVER_BASE;
+    let url = customUrl || config.serverUrl || DEFAULT_SERVER_BASE;
+    if (url.includes('10.10.1.9:8080')) {
+      url = DEFAULT_SERVER_BASE;
+    }
     try {
       const u = new URL(url);
       return `${u.protocol}//${u.host}`;
@@ -25,17 +37,17 @@ class AuthService {
   }
 
   /**
-   * 1. 账号/邮箱 + 密码登录 (POST /auth/login)
+   * 1. 账号/邮箱 + 密码登录 (POST /auth/login 或 POST /login)
    */
   public async loginByPassword(account: string, password: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
       const base = this.getBaseUrl(baseUrl);
-      const url = `${base}/auth/login`;
+      let url = `${base}/auth/login`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
-      const resp = await fetch(url, {
+      let resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -45,9 +57,23 @@ class AuthService {
         signal: controller.signal,
       });
 
+      // 如果 404 则尝试 /login 备用接口
+      if (resp.status === 404) {
+        url = `${base}/login`;
+        resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: account.trim(),
+            password: password.trim(),
+          }),
+          signal: controller.signal,
+        });
+      }
+
       clearTimeout(timeoutId);
 
-      const json = await resp.json();
+      const json = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         return {
           success: false,
@@ -55,7 +81,7 @@ class AuthService {
         };
       }
 
-      const accessToken = json.accessToken || json.data?.accessToken;
+      const accessToken = json.accessToken || json.data?.accessToken || json.data?.token || json.token;
       if (!accessToken) {
         return {
           success: false,
@@ -67,7 +93,7 @@ class AuthService {
         id: json.id || json.data?.id,
         username: json.username || json.data?.username || account.trim(),
         displayName: json.displayName || json.data?.displayName || account.trim(),
-        email: json.email || json.data?.email,
+        email: json.email || json.data?.email || (account.includes('@') ? account.trim() : undefined),
         avatarColor: json.avatarColor || json.data?.avatarColor,
         token: accessToken,
       };
@@ -81,34 +107,50 @@ class AuthService {
         user: userInfo,
       };
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          success: false,
+          message: '登录连接超时，请检查服务端连接',
+        };
+      }
       return {
         success: false,
-        message: `登录请求失败: ${err.message || '网络无法连接到服务端'}`,
+        message: `登录请求失败: ${err.message || '无法连接到服务端'}`,
       };
     }
   }
 
   /**
-   * 2. 发送手机短信验证码 (POST /auth/sms/code)
+   * 2. 发送手机短信验证码 (POST /auth/sms/code 或 /auth/login/smsCode)
    */
   public async sendSmsCode(phone: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
       const base = this.getBaseUrl(baseUrl);
-      const url = `${base}/auth/sms/code`;
+      let url = `${base}/auth/login/smsCode`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
-      const resp = await fetch(url, {
+      let resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: phone.trim() }),
         signal: controller.signal,
       });
 
+      if (resp.status === 404) {
+        url = `${base}/auth/sms/code`;
+        resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phone.trim() }),
+          signal: controller.signal,
+        });
+      }
+
       clearTimeout(timeoutId);
 
-      const json = await resp.json();
+      const json = await resp.json().catch(() => ({}));
       if (!resp.ok || json.code !== 1000) {
         return {
           success: false,
@@ -124,13 +166,13 @@ class AuthService {
     } catch (err: any) {
       return {
         success: false,
-        message: `获取验证码超时: ${err.message || ''}`,
+        message: `获取验证码失败: ${err.message || '网络连接超时'}`,
       };
     }
   }
 
   /**
-   * 3. 手机验证码快捷登录/自动注册 (POST /auth/login/phone)
+   * 3. 手机验证码快捷登录 (POST /auth/login/phone)
    */
   public async loginByPhone(phone: string, code: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
@@ -138,7 +180,7 @@ class AuthService {
       const url = `${base}/auth/login/phone`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -152,26 +194,26 @@ class AuthService {
 
       clearTimeout(timeoutId);
 
-      const json = await resp.json();
-      if (!resp.ok || json.code !== 1000) {
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
         return {
           success: false,
           message: json.message || '验证码登录失败',
         };
       }
 
-      const token = json.data?.token;
+      const token = json.accessToken || json.data?.accessToken || json.data?.token || json.token;
       if (!token) {
         return {
           success: false,
-          message: '登录返回格式异常，未找到 Token',
+          message: json.message || '未获取到有效登录令牌',
         };
       }
 
-      const suffix = phone.length >= 4 ? phone.slice(-4) : phone;
       const userInfo: UserInfo = {
-        username: phone.trim(),
-        displayName: `用户${suffix}`,
+        id: json.id || json.data?.id,
+        username: json.username || json.data?.username || phone.trim(),
+        displayName: json.displayName || json.data?.displayName || `用户_${phone.slice(-4)}`,
         phone: phone.trim(),
         token,
       };
@@ -180,19 +222,20 @@ class AuthService {
 
       return {
         success: true,
-        message: '手机快捷登录成功',
+        message: '登录成功',
         user: userInfo,
       };
     } catch (err: any) {
       return {
         success: false,
-        message: `登录请求失败: ${err.message || ''}`,
+        message: `手机登录失败: ${err.message || '网络超时'}`,
       };
     }
   }
 
   /**
-   * 4. 发送邮箱注册/登录验证码 (POST /auth/register/code 或 /auth/email/code)
+   * 4. 发送邮箱注册验证码 (POST /auth/register/code)
+   * 接口参考 API.md 3.1: 请求体 { email: string }
    */
   public async sendRegisterEmailCode(email: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
@@ -200,7 +243,7 @@ class AuthService {
       const url = `${base}/auth/register/code`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -211,7 +254,7 @@ class AuthService {
 
       clearTimeout(timeoutId);
 
-      const json = await resp.json();
+      const json = await resp.json().catch(() => ({}));
       if (!resp.ok || json.code !== 1000) {
         return {
           success: false,
@@ -221,28 +264,33 @@ class AuthService {
 
       return {
         success: true,
-        message: json.data || '验证码已发送',
+        message: json.data || '验证码已发送至邮箱',
         data: json.data,
       };
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          success: false,
+          message: '请求超时，邮件服务响应较慢，请稍后重试',
+        };
+      }
       return {
         success: false,
-        message: `发送验证码失败: ${err.message || ''}`,
+        message: `发送验证码失败: ${err.message || '网络无法连接到服务端'}`,
       };
     }
   }
 
   /**
-   * 4.1 邮箱验证码快捷登录 (POST /auth/login/email 或自动免密注册登录)
+   * 4.1 邮箱快捷免密登录 (POST /auth/login/email)
    */
   public async loginByEmailCode(email: string, code: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
       const base = this.getBaseUrl(baseUrl);
-      // 优先尝试标准邮箱验证码登录端点
       const url = `${base}/auth/login/email`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
       let resp: Response | null = null;
       let json: any = null;
@@ -281,23 +329,10 @@ class AuthService {
         };
       }
 
-      // 若服务端未配置单独邮箱验证码接口，尝试通过 register 注册/绑定
-      const regRes = await this.registerByEmail(email, code, '123456', baseUrl);
-      if (regRes.success) {
-        return regRes;
-      }
-
-      // 如果提示用户已存在但接口不支持纯验证码登录，尝试使用默认密码登录
-      if (regRes.message && (regRes.message.includes('已存在') || regRes.message.includes('已注册'))) {
-        const loginRes = await this.loginByPassword(email, '123456', baseUrl);
-        if (loginRes.success) {
-          return loginRes;
-        }
-      }
-
+      // 若服务端暂未开放免密登录端点，提示用户使用密码登录或注册
       return {
         success: false,
-        message: regRes.message || json?.message || '验证码校验失败，请检查验证码',
+        message: json?.message || '邮箱快捷登录暂未开启，请使用密码登录或注册新账号',
       };
     } catch (err: any) {
       return {
@@ -309,6 +344,7 @@ class AuthService {
 
   /**
    * 5. 提交邮箱注册 (POST /auth/register)
+   * 接口参考 API.md: 请求体 { email, code, password } (6-72位密码)
    */
   public async registerByEmail(email: string, code: string, password: string, baseUrl?: string): Promise<AuthActionResult> {
     try {
@@ -316,7 +352,7 @@ class AuthService {
       const url = `${base}/auth/register`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -331,22 +367,25 @@ class AuthService {
 
       clearTimeout(timeoutId);
 
-      const json = await resp.json();
+      const json = await resp.json().catch(() => ({}));
       if (!resp.ok || (json.code && json.code !== 1000 && !json.accessToken)) {
         return {
           success: false,
-          message: json.message || '邮箱注册失败',
+          message: json.message || `注册失败 (HTTP ${resp.status})`,
         };
       }
 
-      const token = json.accessToken || json.data?.token || json.data?.accessToken;
-      const username = email.split('@')[0];
+      const token = json.accessToken || json.data?.accessToken || json.data?.token;
+      const username = json.username || json.data?.username || email.split('@')[0];
+      const displayName = json.displayName || json.data?.displayName || username;
 
       if (token) {
         const userInfo: UserInfo = {
+          id: json.id || json.data?.id,
           username,
-          displayName: username,
+          displayName,
           email: email.trim(),
+          avatarColor: json.avatarColor || json.data?.avatarColor,
           token,
         };
         store.dispatch(setUser(userInfo));
@@ -357,9 +396,15 @@ class AuthService {
         };
       }
 
-      // 若未直接返回 token，尝试使用新设置密码登录
+      // 若未直接返回 token，尝试使用注册的密码登录
       return await this.loginByPassword(email.trim(), password.trim(), baseUrl);
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          success: false,
+          message: '注册请求超时，请稍后检查重试',
+        };
+      }
       return {
         success: false,
         message: `注册请求失败: ${err.message || '请检查服务端连接'}`,
@@ -368,17 +413,150 @@ class AuthService {
   }
 
   /**
-   * 6. 登出注销
+   * 6. 发送重置密码邮箱验证码 (POST /auth/password/code)
+   * 接口参考 API.md 3.1
+   */
+  public async sendPasswordResetCode(email: string, baseUrl?: string): Promise<AuthActionResult> {
+    try {
+      const base = this.getBaseUrl(baseUrl);
+      const url = `${base}/auth/password/code`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json.code !== 1000) {
+        return {
+          success: false,
+          message: json.message || '发送重置验证码失败',
+        };
+      }
+
+      return {
+        success: true,
+        message: json.data || '重置验证码已发送至邮箱',
+        data: json.data,
+      };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          success: false,
+          message: '请求超时，请检查网络后重试',
+        };
+      }
+      return {
+        success: false,
+        message: `获取验证码失败: ${err.message || ''}`,
+      };
+    }
+  }
+
+  /**
+   * 7. 提交重置新密码 (POST /auth/updatePassword)
+   * 接口参考 API.md 3.1
+   */
+  public async resetPassword(email: string, code: string, newPassword: string, baseUrl?: string): Promise<AuthActionResult> {
+    try {
+      const base = this.getBaseUrl(baseUrl);
+      const url = `${base}/auth/updatePassword`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          code: code.trim(),
+          newPassword: newPassword.trim(),
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json.code !== 1000) {
+        return {
+          success: false,
+          message: json.message || '重置密码失败',
+        };
+      }
+
+      return {
+        success: true,
+        message: '密码重置成功，请使用新密码登录',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `重置密码请求失败: ${err.message || ''}`,
+      };
+    }
+  }
+
+  /**
+   * 8. 登出注销 (POST /user/info/logoff)
    */
   public async logoff(): Promise<void> {
     store.dispatch(logout());
   }
 
   /**
-   * 7. 设置离线/测试模拟用户
+   * 9. 设置离线/测试模拟用户
    */
   public setMockUser(user: UserInfo): void {
     store.dispatch(setUser(user));
+  }
+
+  /**
+   * 10. 获取登录图形验证码 (GET /auth/login/captcha)
+   */
+  public async getCaptcha(baseUrl?: string): Promise<CaptchaResult> {
+    try {
+      const base = this.getBaseUrl(baseUrl);
+      const url = `${base}/auth/login/captcha`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT);
+
+      const resp = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json.code !== 1000) {
+        return {
+          success: false,
+          message: json.message || '获取图形验证码失败',
+        };
+      }
+
+      return {
+        success: true,
+        captchaId: json.data?.captchaId,
+        imageBase64: json.data?.data,
+        message: '获取成功',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `获取验证码失败: ${err.message || ''}`,
+      };
+    }
   }
 }
 

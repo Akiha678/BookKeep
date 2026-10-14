@@ -12,7 +12,7 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '../../../shared/theme/colors';
+import { Colors } from '../../../core/theme';
 import { useAppDispatch, useAppSelector } from '../../../stores/hooks';
 import { setAuthModalVisible } from '../../../stores/slices/authSlice';
 import { setAutoSync, setServerUrl } from '../../../stores/slices/syncSlice';
@@ -336,7 +336,7 @@ export const MineScreen: React.FC = () => {
               style={styles.textInput}
               value={localServerUrl}
               onChangeText={setLocalServerUrl}
-              placeholder="http://10.10.1.9:8080"
+              placeholder="http://111.231.53.205:8080"
               placeholderTextColor="#94A3B8"
               autoCapitalize="none"
             />

@@ -1,7 +1,7 @@
 import { createMMKV, MMKV } from 'react-native-mmkv';
 import { Transaction, UserInfo, CloudSyncConfig } from '../types/bookkeep';
 
-const DEFAULT_SERVER_URL = 'http://10.10.1.9:8080';
+const DEFAULT_SERVER_URL = 'http://111.231.53.205:8080';
 
 const KEYS = {
   TRANSACTIONS: 'bookkeep_transactions_v2',
@@ -102,7 +102,11 @@ class MMKVStorageService {
     try {
       const raw = mmkv.getString(KEYS.SYNC_CONFIG);
       if (raw) {
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.serverUrl === 'http://10.10.1.9:8080' || !parsed.serverUrl)) {
+          parsed.serverUrl = DEFAULT_SERVER_URL;
+        }
+        return parsed;
       }
     } catch {}
 

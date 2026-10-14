@@ -41,7 +41,7 @@ class CloudSyncService {
   public async login(
     account: string,
     password: string,
-    baseUrl: string = 'http://10.10.1.9:8080'
+    baseUrl: string = 'http://111.231.53.205:8080'
   ): Promise<AuthActionResult> {
     return authService.loginByPassword(account, password, baseUrl);
   }

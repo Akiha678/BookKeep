@@ -52,8 +52,13 @@ Designed with a clean, vibrant Sky Blue visual aesthetic, it natively supports s
   - Robust in-memory fallback mechanism ensuring zero crashes during testing or unlinked environments.
 - 🧩 **High Cohesion, Low Coupling Feature-First Structure**:
   - Modular directory organization (`features/bookkeep`, `features/auth`, `features/mine`);
-  - Shared infrastructure layer (`shared/storage`, `shared/theme`, `shared/types`, `shared/utils`);
+  - Shared infrastructure layer (`core/theme`, `shared/storage`, `shared/types`, `shared/utils`);
   - High enterprise-grade maintainability, cleanliness, and testability.
+- 🎨 **Unified Core Color & Theming System (`src/core/theme`)**:
+  - Atomic Base Palette (`palette`): Covers standard 50~900 gradients across Sky, Blue, Slate, Emerald, Rose, Red, Amber, and Purple;
+  - Structured Semantic Theming (`themeColors`): Categorized into Primary brand colors, Backgrounds (page, card, input, modal), Button variations (primary, theme, secondary, outline, danger, success), Text typography, Borders, Accounting semantics (expense, income), and Status feedback;
+  - Reusable Themed Components: `ThemedView` (declarative background & border container), `ThemedText` (typography & semantic color text), and `ThemedButton` (complete button styling handling states, loading, and disabled appearances);
+  - Color Utilities: Built-in `withAlpha`, `getContrastTextColor`, `getAccountingColor`, and `useThemeColors` hook with 100% backward compatibility for legacy `Colors` dictionary calls.
 
 ---
 
@@ -73,12 +78,14 @@ Designed with a clean, vibrant Sky Blue visual aesthetic, it natively supports s
   - High-performance MMKV storage engine ensuring immediate read/write responsiveness offline;
   - Backed by a Spring Boot cloud API, performing sub-second incremental pulls based on `server_updated_at` timestamps;
   - Built-in **LWW (Last-Write-Wins)** conflict resolution and **Tombstone Soft-Delete** mechanics to prevent resurrected records across devices.
-- 🔐 **Modern Minimalist Multi-Step Authentication & User Center**:
-  - **Sleek Minimalist Multi-Step UI (Modern Blackbox-Style)**: Pristine white aesthetic, prominent bold typography, and single-line underlined inputs replacing bulky forms;
-  - **Step 1 - Email Code Request Screen**: Defaults to "Verification Code Login" with single-line email input and dynamic "Get Verification Code" button; bottom-left switch to "Password Login", bottom-right "Account Recovery";
+- 🔐 **Modern Minimalist Authentication Suite (Registration, Password Login, Email Code & Reset)**:
+  - **Brand New User Registration Flow**: Follows the sleek minimalist single-line design; users input email, request a 4-digit verification code with inline countdown timer (`POST /auth/register/code`), set a 6-72 character password and confirm password, and register with auto-login (`POST /auth/register`);
+  - **Sleek Minimalist Multi-Step UI (Clean White Aesthetic)**: Pristine white aesthetic, prominent bold typography, and single-line underlined inputs replacing bulky forms;
+  - **Step 1 - Email Code Request Screen**: Supports "Verification Code Login" with single-line email input and dynamic "Get Verification Code" button; bottom navigation links to "Password Login", "Register Now", and "Forgot Password";
   - **Step 2 - 4-Box Verification Code Screen**: Smooth transition upon code dispatch showing destination email; 4 individual square boxes with auto-focus, cursor tracking, and instant auto-submit upon entering 4 digits; includes 60s countdown resend button;
-  - **Password Login Mode**: Seamless toggle to "Password Login" with single-line email/account and password inputs (with eye visibility toggle), "Log In" action button, bottom-left "Code Login" toggle, and quick test admin autofill;
-  - **Compliance & Branding**: Integrated Apple / WeChat sign-in options, circular agreement checkbox ("Terms of Service" & "Privacy Policy"), and official BookKeep branding;
+  - **Password Login Mode**: Single-line email/account and password inputs (with eye visibility toggle), "Log In" action button, and quick test admin autofill;
+  - **Password Recovery Flow**: Dedicated reset password modal via email verification code (`POST /auth/password/code`) and new password setup (`POST /auth/updatePassword`);
+  - **Robust Network & Security**: Configured Android Release `network_security_config.xml` with cleartext HTTP traffic allowed, increased timeout to 15s, and surfaced transparent server error messaging;
   - **User Center Integration**: Unauthenticated state in the "Mine" tab gracefully displays offline bookkeep status with one-tap modal trigger, followed by automatic bidirectional cloud synchronization upon login.
 - 💾 **Data Portability & One-Click Backup**:
   - Export all transaction records to standardized JSON backup files;
@@ -198,9 +205,9 @@ npm install
 ```
 
 ### 3. Server Configuration
-The default sync URL points to local LAN (`http://10.10.1.9:8080`). For local emulator testing:
+The default sync URL points to the public cloud server (`http://111.231.53.205:8080`), ready to use out-of-the-box. For local or custom server testing:
 - Android official emulator host loopback address: `http://10.0.2.2:8080`;
-- For physical device debugging, connect both device and computer to the same Wi-Fi and configure the IP in **Mine > Advanced Server Configuration**.
+- To switch to custom/local servers, navigate to **Mine > Advanced Server Configuration** or the **Cloud Sync Modal** to adjust the Base URL.
 
 ### 4. Run Application
 

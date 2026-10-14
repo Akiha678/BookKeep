@@ -12,6 +12,7 @@ import {
   Platform,
   Image,
   Pressable,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authService } from '../services/authService';
@@ -21,26 +22,34 @@ interface AuthModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
-  initialMode?: 'emailCode' | 'passwordLogin';
+  initialMode?: 'emailCode' | 'passwordLogin' | 'register';
 }
 
-type AuthStep = 'email_code_request' | 'email_code_verify' | 'password_login';
+type AuthStep =
+  | 'password_login'      // 密码登录
+  | 'email_code_request'  // 验证码登录发起
+  | 'email_code_verify'   // 验证码输入
+  | 'register'            // 注册新账号
+  | 'reset_password';     // 找回/重置密码
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   visible,
   onClose,
   onSuccess,
-  initialMode = 'emailCode',
+  initialMode = 'passwordLogin',
 }) => {
   const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<AuthStep>('email_code_request');
+  const [step, setStep] = useState<AuthStep>('password_login');
   const [loading, setLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
 
   // 表单数据
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreePolicy, setAgreePolicy] = useState(true);
 
   // 验证码倒计时
@@ -51,12 +60,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      if (initialMode === 'passwordLogin') {
-        setStep('password_login');
-      } else {
+      if (initialMode === 'register') {
+        setStep('register');
+      } else if (initialMode === 'emailCode') {
         setStep('email_code_request');
+      } else {
+        setStep('password_login');
       }
       setCode('');
+      setPassword('');
+      setConfirmPassword('');
     }
   }, [visible, initialMode]);
 
@@ -69,7 +82,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // 当进入验证码界面时，自动聚焦到验证码输入框
+  // 当进入独立 4 格验证码界面时，自动聚焦
   useEffect(() => {
     if (step === 'email_code_verify') {
       const focusTimer = setTimeout(() => {
@@ -82,7 +95,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // 邮箱基本正则校验
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-  // 检查协议是否已同意，未同意则引导同意
+  // 检查协议是否已同意
   const ensurePolicyAgreed = (onAgreed: () => void) => {
     if (agreePolicy) {
       onAgreed();
@@ -104,7 +117,109 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // 1. 获取验证码 (进入 Step 2)
+  // 1. 发送注册验证码 (POST /auth/register/code)
+  const handleSendRegisterCode = async () => {
+    if (!email.trim()) {
+      Alert.alert('提示', '请输入注册邮箱');
+      return;
+    }
+    if (!isEmailValid) {
+      Alert.alert('提示', '请输入合法的邮箱格式（如 example@qq.com）');
+      return;
+    }
+
+    setSendingCode(true);
+    const res = await authService.sendRegisterEmailCode(email.trim());
+    setSendingCode(false);
+
+    if (res.success) {
+      setCountdown(60);
+      if (res.data && String(res.data).length === 4) {
+        setCode(String(res.data));
+        Alert.alert('验证码已下发', `测试环境验证码：${res.data}，已自动为您填入！`);
+      } else {
+        Alert.alert('验证码已发送', `4 位验证码已发送至 ${email.trim()}，请前往邮箱查收（5分钟内有效）。`);
+      }
+    } else {
+      // 真实展示服务端错误（例如：该邮箱已被注册 / 邮箱不存在 / 网络超时）
+      Alert.alert('获取验证码失败', res.message || '请检查邮箱格式或网络状态');
+    }
+  };
+
+  // 2. 提交注册 (POST /auth/register)
+  const handleRegister = async () => {
+    if (!email.trim()) {
+      Alert.alert('提示', '请输入注册邮箱');
+      return;
+    }
+    if (!isEmailValid) {
+      Alert.alert('提示', '请输入有效的邮箱地址');
+      return;
+    }
+    if (!code.trim() || code.trim().length !== 4) {
+      Alert.alert('提示', '请输入 4 位数字邮箱验证码');
+      return;
+    }
+    if (!password.trim() || password.trim().length < 6) {
+      Alert.alert('提示', '密码长度不能少于 6 位字符');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('提示', '两次输入的密码不一致，请重新输入');
+      return;
+    }
+
+    ensurePolicyAgreed(async () => {
+      setLoading(true);
+      const res = await authService.registerByEmail(
+        email.trim(),
+        code.trim(),
+        password.trim()
+      );
+      setLoading(false);
+
+      if (res.success) {
+        Alert.alert(
+          '注册成功',
+          `恭喜您，${res.user?.displayName || email.trim()}！账号已自动登录，已为您开启多端云同步。`
+        );
+        cloudSync.syncWithCloud();
+        onSuccess?.();
+        onClose();
+      } else {
+        Alert.alert('注册失败', res.message || '请核对验证码与信息后重试');
+      }
+    });
+  };
+
+  // 3. 密码登录 (POST /auth/login 或 POST /login)
+  const handlePasswordLogin = async () => {
+    if (!email.trim()) {
+      Alert.alert('提示', '请输入登录邮箱或账号');
+      return;
+    }
+    if (!password.trim()) {
+      Alert.alert('提示', '请输入登录密码');
+      return;
+    }
+
+    ensurePolicyAgreed(async () => {
+      setLoading(true);
+      const res = await authService.loginByPassword(email.trim(), password.trim());
+      setLoading(false);
+
+      if (res.success) {
+        Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || email.trim()}！`);
+        cloudSync.syncWithCloud();
+        onSuccess?.();
+        onClose();
+      } else {
+        Alert.alert('登录失败', res.message || '用户名或密码错误');
+      }
+    });
+  };
+
+  // 4. 验证码登录发起 (发送登录验证码)
   const handleRequestCode = async () => {
     if (!email.trim()) {
       Alert.alert('提示', '请输入常用邮箱地址');
@@ -130,19 +245,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           Alert.alert('提示', `验证码已发送至 ${email.trim()}，请查收邮件`);
         }
       } else {
-        // 开发/脱机环境容错：允许进入验证码输入界面进行演示
-        setCountdown(60);
-        setCode('');
-        setStep('email_code_verify');
-        Alert.alert(
-          '开发演示提示',
-          `未能连接到云端服务，已自动为您开启演示流程。\n测试验证码为：8888`
-        );
+        // 如果邮箱已被注册，友好引导用户使用密码登录
+        if (res.message && res.message.includes('已') && (res.message.includes('注册') || res.message.includes('存在'))) {
+          Alert.alert(
+            '提示',
+            `${res.message}，请使用密码直接登录。`,
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '前往密码登录', onPress: () => setStep('password_login') },
+            ]
+          );
+        } else {
+          Alert.alert('获取验证码失败', res.message || '网络连接或服务异常，请稍后重试');
+        }
       }
     });
   };
 
-  // 2. 验证码输入并自动登录
+  // 5. 验证码独立 4 格核验登录
   const handleVerifyCode = async (codeToVerify: string) => {
     if (codeToVerify.length !== 4) return;
     setLoading(true);
@@ -155,7 +275,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onSuccess?.();
       onClose();
     } else {
-      // 容错：如果是演示验证码 8888 或离线测试，自动支持完成登录体验
+      // 容错：演示验证码
       if (codeToVerify === '8888' || codeToVerify === '6608') {
         const username = email.trim().split('@')[0] || 'demo_user';
         const mockUser = {
@@ -190,58 +310,73 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // 3. 密码登录提交
-  const handlePasswordLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert('提示', '请输入邮箱或账号');
+  // 6. 发送重置密码验证码
+  const handleSendResetPasswordCode = async () => {
+    if (!email.trim() || !isEmailValid) {
+      Alert.alert('提示', '请输入已注册的有效邮箱地址');
       return;
     }
-    if (!password.trim()) {
-      Alert.alert('提示', '请输入登录密码');
-      return;
-    }
+    setSendingCode(true);
+    const res = await authService.sendPasswordResetCode(email.trim());
+    setSendingCode(false);
 
-    ensurePolicyAgreed(async () => {
-      setLoading(true);
-      const res = await authService.loginByPassword(email.trim(), password.trim());
-      setLoading(false);
-
-      if (res.success) {
-        Alert.alert('登录成功', `欢迎回来，${res.user?.displayName || email.trim()}！`);
-        cloudSync.syncWithCloud();
-        onSuccess?.();
-        onClose();
+    if (res.success) {
+      setCountdown(60);
+      if (res.data && String(res.data).length === 4) {
+        setCode(String(res.data));
+        Alert.alert('验证码已下发', `测试验证码：${res.data}，已自动填入！`);
       } else {
-        Alert.alert('登录失败', res.message);
+        Alert.alert('验证码已发送', `重置密码验证码已发送至 ${email.trim()}，请查收邮件。`);
       }
-    });
+    } else {
+      Alert.alert('获取失败', res.message || '该邮箱可能尚未注册');
+    }
   };
 
-  // 快速填入预置测试管理员账号
+  // 7. 提交重置密码
+  const handleResetPassword = async () => {
+    if (!email.trim() || !isEmailValid) {
+      Alert.alert('提示', '请输入有效的邮箱地址');
+      return;
+    }
+    if (!code.trim() || code.trim().length !== 4) {
+      Alert.alert('提示', '请输入 4 位邮箱重置验证码');
+      return;
+    }
+    if (!password.trim() || password.trim().length < 6) {
+      Alert.alert('提示', '新密码长度不能少于 6 位字符');
+      return;
+    }
+
+    setLoading(true);
+    const res = await authService.resetPassword(email.trim(), code.trim(), password.trim());
+    setLoading(false);
+
+    if (res.success) {
+      Alert.alert('重置成功', '新密码已生效，请使用新密码登录', [
+        { text: '确定', onPress: () => setStep('password_login') },
+      ]);
+    } else {
+      Alert.alert('重置密码失败', res.message || '请检查验证码是否正确或已过期');
+    }
+  };
+
+  // 快速填充测试账号
   const handleQuickFillAdmin = () => {
     setEmail('admin1');
     setPassword('123456');
     setAgreePolicy(true);
   };
 
-  // 账号找回提示
-  const handleAccountRecovery = () => {
-    Alert.alert(
-      '账号找回',
-      '如您忘记密码或无法接收验证码，请联系管理员微信或发送邮件至 support@sanjin.com 进行人工申诉。',
-      [{ text: '我知道了' }]
-    );
-  };
-
-  // 第三方登录提示
-  const handleThirdPartyLogin = (platform: 'Apple' | '微信') => {
-    ensurePolicyAgreed(() => {
-      Alert.alert(
-        `${platform}登录`,
-        `${platform}快捷登录服务对接中，当前推荐使用邮箱验证码极速免密登录！`,
-        [{ text: '确定' }]
-      );
-    });
+  // 切换回上一步或关闭
+  const handleBack = () => {
+    if (step === 'email_code_verify') {
+      setStep('email_code_request');
+    } else if (step === 'register' || step === 'reset_password') {
+      setStep('password_login');
+    } else {
+      onClose();
+    }
   };
 
   return (
@@ -255,46 +390,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         style={styles.fullScreen}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={[styles.container, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
-          {/* 顶栏操作区：左上角关闭或返回 */}
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: Math.max(insets.top, 20),
+              paddingBottom: Math.max(insets.bottom, 20),
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* 顶栏导航 */}
           <View style={styles.navBar}>
-            {step === 'email_code_verify' ? (
-              <TouchableOpacity
-                onPress={() => setStep('email_code_request')}
-                style={styles.navIconBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.backChevron}>‹</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                onPress={onClose}
-                style={styles.navIconBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                activeOpacity={0.7}
-              >
+            <TouchableOpacity
+              onPress={handleBack}
+              style={styles.navIconBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              activeOpacity={0.7}
+            >
+              {step === 'password_login' ? (
                 <Text style={styles.closeCross}>✕</Text>
-              </TouchableOpacity>
-            )}
+              ) : (
+                <Text style={styles.backChevron}>‹</Text>
+              )}
+            </TouchableOpacity>
           </View>
 
-          {/* 页面主内容区域 */}
+          {/* 页面主内容 */}
           <View style={styles.body}>
             {/* ─────────────────────────────────────────────────────────────
-                1. 验证码登录请求界面 (图一风格)
+                模式 1: 注册新账号 (按登录页面样式与 API.md 逻辑)
                ───────────────────────────────────────────────────────────── */}
-            {step === 'email_code_request' && (
+            {step === 'register' && (
               <View style={styles.stepContainer}>
-                <Text style={styles.pageTitle}>验证码登录</Text>
+                <Text style={styles.pageTitle}>注册新账号</Text>
+                <Text style={styles.pageSubTitle}>
+                  验证邮箱即可完成注册，自动开启多端云同步
+                </Text>
 
-                {/* 单行底边线输入框 */}
+                {/* 1. 邮箱输入框 */}
                 <View style={styles.singleLineInputBox}>
                   <TextInput
                     style={styles.singleLineInput}
                     value={email}
                     onChangeText={setEmail}
-                    placeholder="输入邮箱"
+                    placeholder="输入注册邮箱 (如 user@qq.com)"
                     placeholderTextColor="#CBD5E1"
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -307,14 +447,90 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                 </View>
 
-                {/* 获取验证码主按钮 */}
+                {/* 2. 邮箱验证码输入框 + 获取验证码内嵌按钮 */}
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={code}
+                    onChangeText={setCode}
+                    placeholder="4 位邮箱验证码"
+                    placeholderTextColor="#CBD5E1"
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.codeInlineBtn,
+                      countdown > 0 || sendingCode || !isEmailValid ? styles.codeInlineBtnDisabled : null,
+                    ]}
+                    onPress={handleSendRegisterCode}
+                    disabled={countdown > 0 || sendingCode || !isEmailValid}
+                  >
+                    {sendingCode ? (
+                      <ActivityIndicator size="small" color="#2563EB" />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.codeInlineBtnText,
+                          countdown > 0 || !isEmailValid ? styles.codeInlineBtnTextDisabled : null,
+                        ]}
+                      >
+                        {countdown > 0 ? `${countdown}s 后重发` : '获取验证码'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* 3. 密码输入框 */}
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="设置密码 (6-72位字符)"
+                    placeholderTextColor="#CBD5E1"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.eyeIconText}>{showPassword ? '👁️' : '🙈'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 4. 确认密码输入框 */}
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="再次确认密码"
+                    placeholderTextColor="#CBD5E1"
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={styles.eyeBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.eyeIconText}>{showConfirmPassword ? '👁️' : '🙈'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 注册提交按钮 */}
                 <TouchableOpacity
                   style={[
                     styles.primaryButton,
-                    isEmailValid && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
+                    email.trim() && code.trim().length === 4 && password.trim().length >= 6 && !loading
+                      ? styles.primaryButtonActive
+                      : styles.primaryButtonDisabled,
                   ]}
-                  onPress={handleRequestCode}
-                  disabled={!isEmailValid || loading}
+                  onPress={handleRegister}
+                  disabled={!email.trim() || code.trim().length !== 4 || password.trim().length < 6 || loading}
                   activeOpacity={0.85}
                 >
                   {loading ? (
@@ -323,123 +539,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Text
                       style={[
                         styles.primaryButtonText,
-                        isEmailValid ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
+                        email.trim() && code.trim().length === 4 && password.trim().length >= 6
+                          ? styles.primaryButtonTextActive
+                          : styles.primaryButtonTextDisabled,
                       ]}
                     >
-                      获取验证码
+                      注 册 并 登 录
                     </Text>
                   )}
                 </TouchableOpacity>
 
-                {/* 按钮下方文字链接：左下角密码登录，右下角账号找回 */}
+                {/* 底部导航链接 */}
                 <View style={styles.subLinksRow}>
                   <TouchableOpacity
                     onPress={() => setStep('password_login')}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={styles.subLinkLeftText}>密码登录</Text>
+                    <Text style={styles.subLinkLeftText}>已有账号？立即登录</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    onPress={handleAccountRecovery}
+                    onPress={() => setStep('email_code_request')}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={styles.subLinkRightText}>账号找回</Text>
+                    <Text style={styles.subLinkRightText}>验证码免密登录</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
 
             {/* ─────────────────────────────────────────────────────────────
-                2. 验证码输入界面 (图二风格)
-               ───────────────────────────────────────────────────────────── */}
-            {step === 'email_code_verify' && (
-              <View style={styles.stepContainer}>
-                <Text style={styles.pageTitle}>输入验证码</Text>
-                <Text style={styles.pageSubTitle}>{email.trim()}</Text>
-
-                {/* 4 位独立方框验证码展示区 */}
-                <Pressable
-                  style={styles.codeBoxesContainer}
-                  onPress={() => codeInputRef.current?.focus()}
-                >
-                  {[0, 1, 2, 3].map(index => {
-                    const char = code[index] || '';
-                    const isCurrent = code.length === index;
-                    return (
-                      <View
-                        key={index}
-                        style={[
-                          styles.codeBox,
-                          isCurrent && styles.codeBoxFocused,
-                          char ? styles.codeBoxFilled : null,
-                        ]}
-                      >
-                        {char ? (
-                          <Text style={styles.codeCharText}>{char}</Text>
-                        ) : isCurrent ? (
-                          <View style={styles.cursorLine} />
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </Pressable>
-
-                {/* 隐藏的绝对定位真实输入框 */}
-                <TextInput
-                  ref={codeInputRef}
-                  style={styles.hiddenInput}
-                  value={code}
-                  onChangeText={handleCodeChange}
-                  keyboardType="number-pad"
-                  maxLength={4}
-                  caretHidden={true}
-                />
-
-                {/* 重新发送 / 倒计时按钮 */}
-                <TouchableOpacity
-                  style={[
-                    styles.primaryButton,
-                    countdown === 0 && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
-                  ]}
-                  onPress={handleRequestCode}
-                  disabled={countdown > 0 || loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        countdown === 0 ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
-                      ]}
-                    >
-                      {countdown > 0 ? `重新发送(${countdown}s)` : '重新发送'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                {/* 按钮右下方账号找回 */}
-                <View style={styles.subLinksRightOnly}>
-                  <TouchableOpacity
-                    onPress={handleAccountRecovery}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Text style={styles.subLinkRightText}>账号找回</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* ─────────────────────────────────────────────────────────────
-                3. 密码登录界面 (同理风格)
+                模式 2: 密码登录
                ───────────────────────────────────────────────────────────── */}
             {step === 'password_login' && (
               <View style={styles.stepContainer}>
                 <Text style={styles.pageTitle}>密码登录</Text>
+                <Text style={styles.pageSubTitle}>使用已注册的邮箱或账号登录</Text>
 
-                {/* 单行底边线：邮箱/账号 */}
+                {/* 邮箱/账号输入 */}
                 <View style={styles.singleLineInputBox}>
                   <TextInput
                     style={styles.singleLineInput}
@@ -457,8 +594,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                 </View>
 
-                {/* 单行底边线：密码 */}
-                <View style={[styles.singleLineInputBox, styles.inputMarginTop]}>
+                {/* 密码输入 */}
+                <View style={styles.singleLineInputBox}>
                   <TextInput
                     style={styles.singleLineInput}
                     value={password}
@@ -484,7 +621,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {/* 登录主按钮 */}
+                {/* 登录按钮 */}
                 <TouchableOpacity
                   style={[
                     styles.primaryButton,
@@ -512,20 +649,295 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                 </TouchableOpacity>
 
-                {/* 按钮下方文字链接：左下角验证码登录，右下角账号找回 */}
-                <View style={styles.subLinksRow}>
+                {/* 底部快捷导航三按钮 */}
+                <View style={styles.subLinksThreeCol}>
                   <TouchableOpacity
                     onPress={() => setStep('email_code_request')}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={styles.subLinkLeftText}>验证码登录</Text>
+                    <Text style={styles.subLinkText}>验证码登录</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    onPress={handleAccountRecovery}
+                    onPress={() => setStep('register')}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={styles.subLinkRightText}>账号找回</Text>
+                    <Text style={styles.subLinkHighlightText}>立即注册</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setStep('reset_password')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkMutedText}>找回密码</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                模式 3: 验证码登录发起
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'email_code_request' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>验证码登录</Text>
+                <Text style={styles.pageSubTitle}>输入邮箱获取验证码，快速安全登录</Text>
+
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="输入邮箱"
+                    placeholderTextColor="#CBD5E1"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {email.length > 0 && (
+                    <TouchableOpacity onPress={() => setEmail('')} style={styles.clearIconBtn}>
+                      <Text style={styles.clearIconText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    isEmailValid && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleRequestCode}
+                  disabled={!isEmailValid || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        isEmailValid ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      获取验证码
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.subLinksThreeCol}>
+                  <TouchableOpacity
+                    onPress={() => setStep('password_login')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkText}>密码登录</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setStep('register')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkHighlightText}>立即注册</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setStep('reset_password')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkMutedText}>找回密码</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                模式 4: 独立 4 格验证码输入
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'email_code_verify' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>输入验证码</Text>
+                <Text style={styles.pageSubTitle}>{email.trim()}</Text>
+
+                <Pressable
+                  style={styles.codeBoxesContainer}
+                  onPress={() => codeInputRef.current?.focus()}
+                >
+                  {[0, 1, 2, 3].map(index => {
+                    const char = code[index] || '';
+                    const isCurrent = code.length === index;
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.codeBox,
+                          isCurrent && styles.codeBoxFocused,
+                          char ? styles.codeBoxFilled : null,
+                        ]}
+                      >
+                        {char ? (
+                          <Text style={styles.codeCharText}>{char}</Text>
+                        ) : isCurrent ? (
+                          <View style={styles.cursorLine} />
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </Pressable>
+
+                <TextInput
+                  ref={codeInputRef}
+                  style={styles.hiddenInput}
+                  value={code}
+                  onChangeText={handleCodeChange}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  caretHidden={true}
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    countdown === 0 && !loading ? styles.primaryButtonActive : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleRequestCode}
+                  disabled={countdown > 0 || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        countdown === 0 ? styles.primaryButtonTextActive : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      {countdown > 0 ? `重新发送(${countdown}s)` : '重新发送'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.subLinksRightOnly}>
+                  <TouchableOpacity
+                    onPress={() => setStep('password_login')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkRightText}>返回密码登录</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                模式 5: 找回/重置密码 (API.md 3.1)
+               ───────────────────────────────────────────────────────────── */}
+            {step === 'reset_password' && (
+              <View style={styles.stepContainer}>
+                <Text style={styles.pageTitle}>重置登录密码</Text>
+                <Text style={styles.pageSubTitle}>通过注册邮箱接收验证码并设置新密码</Text>
+
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="输入已注册的邮箱"
+                    placeholderTextColor="#CBD5E1"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {email.length > 0 && (
+                    <TouchableOpacity onPress={() => setEmail('')} style={styles.clearIconBtn}>
+                      <Text style={styles.clearIconText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={code}
+                    onChangeText={setCode}
+                    placeholder="4 位邮箱验证码"
+                    placeholderTextColor="#CBD5E1"
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.codeInlineBtn,
+                      countdown > 0 || sendingCode || !isEmailValid ? styles.codeInlineBtnDisabled : null,
+                    ]}
+                    onPress={handleSendResetPasswordCode}
+                    disabled={countdown > 0 || sendingCode || !isEmailValid}
+                  >
+                    {sendingCode ? (
+                      <ActivityIndicator size="small" color="#2563EB" />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.codeInlineBtnText,
+                          countdown > 0 || !isEmailValid ? styles.codeInlineBtnTextDisabled : null,
+                        ]}
+                      >
+                        {countdown > 0 ? `${countdown}s 后重发` : '获取验证码'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.singleLineInputBox}>
+                  <TextInput
+                    style={styles.singleLineInput}
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="设置新密码 (6-72位字符)"
+                    placeholderTextColor="#CBD5E1"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.eyeIconText}>{showPassword ? '👁️' : '🙈'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    email.trim() && code.trim().length === 4 && password.trim().length >= 6 && !loading
+                      ? styles.primaryButtonActive
+                      : styles.primaryButtonDisabled,
+                  ]}
+                  onPress={handleResetPassword}
+                  disabled={!email.trim() || code.trim().length !== 4 || password.trim().length < 6 || loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        email.trim() && code.trim().length === 4 && password.trim().length >= 6
+                          ? styles.primaryButtonTextActive
+                          : styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      重 置 密 码
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.subLinksRightOnly}>
+                  <TouchableOpacity
+                    onPress={() => setStep('password_login')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.subLinkRightText}>返回登录</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -533,33 +945,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </View>
 
           {/* ─────────────────────────────────────────────────────────────
-              底部公共区域：第三方登录 + 协议勾选 + 品牌 Logo
+              底部公共区域：协议勾选 + 品牌 Logo
              ───────────────────────────────────────────────────────────── */}
           <View style={styles.footer}>
-            {/* 第三方登录按钮（在首屏和密码页展示） */}
-            {step !== 'email_code_verify' && (
-              <View style={styles.thirdPartyRow}>
-                <TouchableOpacity
-                  style={styles.thirdPartyBtn}
-                  onPress={() => handleThirdPartyLogin('Apple')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.appleLogoIcon}></Text>
-                  <Text style={styles.thirdPartyBtnText}>通过Apple登录</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.thirdPartyBtn}
-                  onPress={() => handleThirdPartyLogin('微信')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.wechatLogoIcon}>💬</Text>
-                  <Text style={styles.thirdPartyBtnText}>微信登录</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* 协议勾选行 */}
             <TouchableOpacity
               style={styles.agreementRow}
               onPress={() => setAgreePolicy(!agreePolicy)}
@@ -596,7 +984,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </Text>
             </TouchableOpacity>
 
-            {/* 底部品牌 Logo 标识 */}
             <View style={styles.brandRow}>
               <Image
                 source={require('../../../../assets/logo.png')}
@@ -606,7 +993,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <Text style={styles.brandName}>三金记账</Text>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -617,8 +1004,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  container: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 30,
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
@@ -647,7 +1034,7 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    paddingTop: 16,
+    paddingTop: 10,
   },
   stepContainer: {
     width: '100%',
@@ -656,26 +1043,26 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: -0.3,
   },
   pageSubTitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#94A3B8',
-    marginBottom: 28,
+    marginBottom: 20,
+    lineHeight: 20,
   },
   singleLineInputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
-    paddingVertical: 14,
-    marginTop: 20,
-    marginBottom: 30,
+    paddingVertical: 12,
+    marginBottom: 16,
   },
   singleLineInput: {
     flex: 1,
-    fontSize: 17,
+    fontSize: 16,
     color: '#0F172A',
     padding: 0,
   },
@@ -686,15 +1073,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#94A3B8',
   },
-  inputMarginTop: {
-    marginTop: 4,
-    marginBottom: 16,
-  },
   eyeBtn: {
     padding: 4,
   },
   eyeIconText: {
     fontSize: 18,
+  },
+  codeInlineBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#EFF6FF',
+    minWidth: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codeInlineBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+  },
+  codeInlineBtnText: {
+    fontSize: 13,
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  codeInlineBtnTextDisabled: {
+    color: '#94A3B8',
   },
   quickFillWrap: {
     alignItems: 'flex-end',
@@ -711,6 +1114,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 8,
   },
   primaryButtonActive: {
     backgroundColor: '#1E293B',
@@ -735,6 +1139,13 @@ const styles = StyleSheet.create({
     marginTop: 18,
     paddingHorizontal: 2,
   },
+  subLinksThreeCol: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 18,
+    paddingHorizontal: 2,
+  },
   subLinksRightOnly: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -750,7 +1161,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#94A3B8',
   },
-  // 4 位方块验证码样式
+  subLinkText: {
+    fontSize: 14,
+    color: '#475569',
+  },
+  subLinkHighlightText: {
+    fontSize: 14,
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  subLinkMutedText: {
+    fontSize: 14,
+    color: '#94A3B8',
+  },
   codeBoxesContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -793,50 +1216,17 @@ const styles = StyleSheet.create({
     height: 0,
     width: 0,
   },
-  // 底部区域
   footer: {
     width: '100%',
     alignItems: 'center',
-    paddingTop: 10,
-  },
-  thirdPartyRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    width: '100%',
-    marginBottom: 20,
-    gap: 12,
-  },
-  thirdPartyBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  appleLogoIcon: {
-    fontSize: 17,
-    color: '#0F172A',
-    marginRight: 6,
-    fontWeight: '700',
-  },
-  wechatLogoIcon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  thirdPartyBtnText: {
-    fontSize: 13,
-    color: '#0F172A',
-    fontWeight: '500',
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   agreementRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     paddingHorizontal: 8,
   },
   checkboxCircle: {

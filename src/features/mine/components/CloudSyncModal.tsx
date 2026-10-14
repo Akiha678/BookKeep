@@ -323,7 +323,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
                     style={styles.urlInput}
                     value={localServerUrl}
                     onChangeText={setLocalServerUrl}
-                    placeholder="http://10.10.1.9:8080"
+                    placeholder="http://111.231.53.205:8080"
                     placeholderTextColor="#94A3B8"
                     autoCapitalize="none"
                   />
