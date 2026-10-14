@@ -118,7 +118,7 @@ sequenceDiagram
 - **Runtime**: React 19
 - **State Management**: [@reduxjs/toolkit 2.x](https://redux-toolkit.js.org) + [react-redux 9.x](https://react-redux.js.org)
 - **Routing & Navigation**: [@react-navigation/native 7.x](https://reactnavigation.org) + Bottom Tabs + Native Stack
-- **Local Persistence**: [react-native-mmkv 4.x](https://github.com/mrousavy/react-native-mmkv)
+- **Local Persistence**: [react-native-mmkv 4.x](https://github.com/mrousavy/react-native-mmkv) + [react-native-nitro-modules](https://github.com/mrousavy/nitro) (C++ Nitro high-performance JNI runtime)
 - **Safe Area**: `react-native-safe-area-context 5.x`
 - **Native Screens**: `react-native-screens 4.x`
 - **Code Standards & Testing**: TypeScript 5.x / ESLint / Prettier / Jest

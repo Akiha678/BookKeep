@@ -120,7 +120,7 @@ sequenceDiagram
 - **运行时环境**：React 19
 - **状态管理**：[@reduxjs/toolkit 2.x](https://redux-toolkit.js.org) + [react-redux 9.x](https://react-redux.js.org)
 - **导航路由**：[@react-navigation/native 7.x](https://reactnavigation.org) + Bottom Tabs + Native Stack
-- **本地持久化**：[react-native-mmkv 4.x](https://github.com/mrousavy/react-native-mmkv)
+- **本地持久化**：[react-native-mmkv 4.x](https://github.com/mrousavy/react-native-mmkv) + [react-native-nitro-modules](https://github.com/mrousavy/nitro) (C++ Nitro 极速 JNI 运行时底座)
 - **安全边距**：`react-native-safe-area-context 5.x`
 - **原生转场优化**：`react-native-screens 4.x`
 - **代码规范与测试**：TypeScript 5.x / ESLint / Prettier / Jest

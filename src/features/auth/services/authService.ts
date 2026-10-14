@@ -373,6 +373,13 @@ class AuthService {
   public async logoff(): Promise<void> {
     store.dispatch(logout());
   }
+
+  /**
+   * 7. 设置离线/测试模拟用户
+   */
+  public setMockUser(user: UserInfo): void {
+    store.dispatch(setUser(user));
+  }
 }
 
 export const authService = new AuthService();

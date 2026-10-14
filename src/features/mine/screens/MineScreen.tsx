@@ -48,10 +48,10 @@ export const MineScreen: React.FC = () => {
   const lastSyncDateStr =
     lastSyncTime && lastSyncTime > 0
       ? new Date(lastSyncTime).toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
       : '尚未同步';
 
   const handleTriggerSync = async () => {
@@ -198,22 +198,22 @@ export const MineScreen: React.FC = () => {
               !currentUser
                 ? styles.statusPillGuest
                 : syncStatus === 'syncing'
-                ? styles.statusPillSyncing
-                : syncStatus === 'error'
-                ? styles.statusPillError
-                : styles.statusPillSuccess,
+                  ? styles.statusPillSyncing
+                  : syncStatus === 'error'
+                    ? styles.statusPillError
+                    : styles.statusPillSuccess,
             ]}
           >
             <Text style={styles.statusPillText}>
               {!currentUser
                 ? '离线模式'
                 : syncStatus === 'syncing'
-                ? '正在同步...'
-                : syncStatus === 'success'
-                ? '增量同步就绪'
-                : syncStatus === 'error'
-                ? '同步异常'
-                : '闲置就绪'}
+                  ? '正在同步...'
+                  : syncStatus === 'success'
+                    ? '增量同步就绪'
+                    : syncStatus === 'error'
+                      ? '同步异常'
+                      : '闲置就绪'}
             </Text>
           </View>
         </View>
